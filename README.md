@@ -1,0 +1,3 @@
+# Pyunxcle
+
+Pyuxncle is a single-pass compiler for a small subset of c, (albeit without the std library). This compiler targets uxntal, the assembly language of the Uxn virtual computer. I plan on rewriting this in C in the future, but I needed to quickly prototype my design choices and python helped me do that. The output uxntal is not meant to be human readable, only to be directly passed to uxnasm.
