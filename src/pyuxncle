@@ -3,14 +3,15 @@
 from parser import Parser
 
 testSrc = """
-int fact(int i) {
-    if (i == 1)
-        return 1;
-    return i * fact(i-1);
+int total = 0;
+int x = 10;
+
+while (x > 0) {
+    total = total + x;
+    x = x - 1;
 }
 
-print fact(5);
-print fact;
+print total;
 """
 
 parse = Parser(testSrc)

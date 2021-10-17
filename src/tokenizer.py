@@ -22,6 +22,7 @@ class TOKENTYPE(Enum):
     LESS = auto() # <
     IF = auto() # if
     ELSE = auto() # else
+    WHILE = auto() # while
     RETURN = auto() # return
     IDENT = auto() # Identifier_123
     NUM = auto() # 1234567890
@@ -44,6 +45,7 @@ class Token:
 _ReservedWordTable = {
     "if"    : TOKENTYPE.IF,
     "else"  : TOKENTYPE.ELSE,
+    "while" : TOKENTYPE.WHILE,
     "return": TOKENTYPE.RETURN,
     "int"   : TOKENTYPE.INT,
     "bool"  : TOKENTYPE.BOOL,

@@ -70,6 +70,8 @@ class Parser:
             TOKENTYPE.STAR:         _PrecRule(PRECTYPE.FACTOR,  None,           self.__binOp),
             TOKENTYPE.SLASH:        _PrecRule(PRECTYPE.FACTOR,  None,           self.__binOp),
             TOKENTYPE.EQUALEQUAL:   _PrecRule(PRECTYPE.COMPAR,  None,           self.__binOp),
+            TOKENTYPE.GRTR:         _PrecRule(PRECTYPE.COMPAR,  None,           self.__binOp),
+            TOKENTYPE.LESS:         _PrecRule(PRECTYPE.COMPAR,  None,           self.__binOp),
 
             TOKENTYPE.LPAREN:       _PrecRule(PRECTYPE.CALL,    self.__group,   self.__callSub),
             TOKENTYPE.RPAREN:       _PrecRule(PRECTYPE.NONE,    None,           None),
@@ -174,13 +176,12 @@ class Parser:
     # maybe hold the index of the intliteral to patch int __popScope? the returned _VarInfo is valid until __addScopeVar
     # or __popScope is called again
     def __addScopeVar(self, var: _Variable) -> _VarInfo:
-        self.scopeStack[-1].addVar(var) # add the variable to the current scope
-
         # if we're not parsing a function, define the variable as a global
         if self.currentSub == -1:
             self.globals.append(var)
             return _VarInfo(var, -1)
 
+        self.scopeStack[-1].addVar(var) # add the variable to the current scope
         self.__writeIntLiteral(var.dtype.getSize())
         self.__writeOut(";alloc-uxncle JSR2\n")
         return _VarInfo(var, var.dtype.getSize())
@@ -398,6 +399,12 @@ class Parser:
         elif tkn.type == TOKENTYPE.EQUALEQUAL:
             self.__writeBinaryOp("EQU", rtype, BoolDataType())
             rtype = BoolDataType()
+        elif tkn.type == TOKENTYPE.GRTR:
+            self.__writeBinaryOp("GTH", rtype, BoolDataType())
+            rtype = BoolDataType()
+        elif tkn.type == TOKENTYPE.LESS:
+            self.__writeBinaryOp("LTH", rtype, BoolDataType())
+            rtype = BoolDataType()
         else: # should never happen
             self.__errorAt(tkn, "Invalid binary operator token!")
 
@@ -610,6 +617,32 @@ class Parser:
         # define the label to jump to after the statements
         self.__declareLbl(jmp)
 
+    def __whileState(self):
+        self.__consume(TOKENTYPE.LPAREN, "Expected '(' to start conditional expression!")
+        jmp = self.__newJmpLbl()
+        exitJmp = self.__newJmpLbl()
+
+        # declare the label that will be the start of the loop
+        self.__declareLbl(jmp)
+        dtype = self.__expression()
+
+        self.__consume(TOKENTYPE.RPAREN, "Expected ')' to end conditional expression!")
+
+        if not self.__tryTypeCast(dtype, BoolDataType()):
+            self.__error("Couldn't convert '%s' to 'bool'!" % dtype.name)
+
+        # write comparison jump, if the flag is not equal to true, jump out of the loop
+        self.__writeOut("#01 NEQ ")
+        self.__jmpCondLbl(exitJmp)
+
+        # now parse the loop body
+        self.__statement()
+
+        # jump back to the start of the loop
+        self.__jmpLbl(jmp)
+        self.__declareLbl(exitJmp)
+
+
     def __returnState(self):
         if self.currentSub == -1: # we're not currently parsing a function!
             self.error("'return' not allowed in this context!")
@@ -652,9 +685,12 @@ class Parser:
         elif self.__match(TOKENTYPE.IF): # we don't expect a ';', and the stack *should* already be balanced (???) so these statements return immediately
             self.__ifState()
             return
+        elif self.__match(TOKENTYPE.WHILE): # we don't expect a ';'
+            self.__whileState()
+            return
         elif self.__match(TOKENTYPE.RETURN):
             self.__returnState()
-        elif self.__match(TOKENTYPE.PRINT):
+        elif self.__match(TOKENTYPE.PRINT): # TEMPORARY DEBUGGING STATEMENT
             rtype = self.__expression()
             if not self.__tryTypeCast(rtype, IntDataType()):
                 self.__error("'print' only accepts integer expressions!")
