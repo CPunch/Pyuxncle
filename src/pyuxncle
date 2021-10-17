@@ -10,6 +10,7 @@ int fact(int i) {
 }
 
 print fact(5);
+print fact;
 """
 
 parse = Parser(testSrc)

@@ -19,11 +19,12 @@ class DataType:
         return self.type == type.type
 
 class Subroutine(DataType):
-    def __init__(self, retType: DataType):
+    def __init__(self, retType: DataType, name: str):
         super().__init__("_func", DTYPES.SUB)
         self.instrs = ""
         self.args: list[DataType] = []
         self.retType = retType
+        self.subname = name
 
     def addArg(self, dtype: DataType):
         self.args.append(dtype)
@@ -32,7 +33,7 @@ class Subroutine(DataType):
         self.instrs = self.instrs + uxntal
 
     def getSize(self) -> int:
-        return 2 # the actual data passed to the stack is an absolute address (short)
+        return 0 # we don't actually push anything until it's called or used in an arithmetic expression (or type casted)
 
 class IntDataType(DataType):
     def __init__(self):

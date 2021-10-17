@@ -10,7 +10,8 @@ class PRECTYPE(IntEnum):
     COMPAR = 2,     # == !=
     TERM = 3,       # + - 
     FACTOR = 4,     # * /
-    PRIMARY = 5
+    CALL = 5,       # ( )
+    PRIMARY = 6
 
 class _PrecRule:
     def __init__(self, prec: PRECTYPE, prefix: Callable[[DataType, bool, bool, PRECTYPE], DataType],
@@ -70,7 +71,7 @@ class Parser:
             TOKENTYPE.SLASH:        _PrecRule(PRECTYPE.FACTOR,  None,           self.__binOp),
             TOKENTYPE.EQUALEQUAL:   _PrecRule(PRECTYPE.COMPAR,  None,           self.__binOp),
 
-            TOKENTYPE.LPAREN:       _PrecRule(PRECTYPE.NONE,    self.__group,   None),
+            TOKENTYPE.LPAREN:       _PrecRule(PRECTYPE.CALL,    self.__group,   self.__callSub),
             TOKENTYPE.RPAREN:       _PrecRule(PRECTYPE.NONE,    None,           None),
 
             TOKENTYPE.IDENT:        _PrecRule(PRECTYPE.NONE,    self.__ident,   None),
@@ -275,9 +276,6 @@ class Parser:
                     self.__writeOut(".globals/%s " % varInfo.var.name)
                     self.__writeByteLiteral(indx) # add offset to read from
                     self.__writeOut("ADD LDZ")
-        elif varInfo.indx == -2: # is it a subroutine?
-            # load the address onto the stack
-            self.__writeOut(";SUB_%s " % varInfo.var.name)
         else: # it's a normal var stored in the heap
             # read variable from the heap 2 bytes at a time
             while indx < dtype.getSize() - 1:
@@ -347,7 +345,11 @@ class Parser:
             return True
         # convert BOOL to INT
         elif fromType.type == DTYPES.BOOL and toType.type == DTYPES.INT:
-            self.__writeOut("#00 SWP")
+            self.__writeOut("#00 SWP ")
+            return True
+        # convert subroutine to INT, (push the absolute address !)
+        elif fromType.type == DTYPES.SUB and toType.type == DTYPES.INT:
+            self.__writeOut(";%s " % fromType.subname)
             return True
 
         return False
@@ -401,7 +403,7 @@ class Parser:
 
         return rtype
 
-    def __callSub(self, sub: Subroutine, name: str):
+    def __callSub(self, sub: Subroutine, canAssign: bool, expectValue: bool, precLevel: PRECTYPE):
         if not sub.type == DTYPES.SUB:
             self.__error("Expression of type '%s' is not callable!" % sub.name)
 
@@ -420,7 +422,7 @@ class Parser:
         self.__consume(TOKENTYPE.RPAREN, "Expected ')' to end function call!")
 
         # call subroutine
-        self.__writeOut(";SUB_%s JSR2\n" % name)
+        self.__writeOut(";%s JSR2\n" % sub.subname)
 
         # track pushed value on stack
         self.pushed += sub.retType.getSize()
@@ -449,10 +451,7 @@ class Parser:
                 # finally, set the variable
                 self.__setVar(varInfo)
             else:
-                if self.__match(TOKENTYPE.LPAREN):
-                    return self.__callSub(ltype, varInfo.var.name)
-
-                if not expectValue: # sanity check
+                if not expectValue and varInfo.var.dtype.type != DTYPES.SUB: # sanity check
                     return VoidDataType()
 
                 self.__getVar(varInfo)
@@ -509,7 +508,7 @@ class Parser:
             self.__error("Cannot define a function here!")
 
         ident = ident.word
-        sub = Subroutine(retType)
+        sub = Subroutine(retType, "SUB_%s" % ident)
 
         self.__newScope()
         if not self.__check(TOKENTYPE.RPAREN): # arguments are being defined
@@ -656,7 +655,9 @@ class Parser:
         elif self.__match(TOKENTYPE.RETURN):
             self.__returnState()
         elif self.__match(TOKENTYPE.PRINT):
-            self.__expression()
+            rtype = self.__expression()
+            if not self.__tryTypeCast(rtype, IntDataType()):
+                self.__error("'print' only accepts integer expressions!")
             self.__writeOut(";print-decimal JSR2 #20 .Console/char DEO\n")
             self.pushed -= 2
         elif self.__match(TOKENTYPE.LBRACE):
@@ -697,7 +698,7 @@ class Parser:
 
         # TODO: write subroutines
         for sub in self.subs:
-            self.out.write("@SUB_%s\n" % sub.name)
+            self.out.write("@%s\n" % sub.dtype.subname)
             self.out.write(sub.dtype.instrs)
             self.out.write("JMP2r\n\n")
 

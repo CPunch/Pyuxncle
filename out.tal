@@ -9,6 +9,7 @@
 ;uxncle-heap .uxncle/heap STZ2
 #0005 ;SUB_fact JSR2
 ;print-decimal JSR2 #20 .Console/char DEO
+;SUB_fact ;print-decimal JSR2 #20 .Console/char DEO
 BRK
 
 @SUB_fact
