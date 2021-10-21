@@ -1,6 +1,8 @@
 from enum import Enum, auto
 import string
 
+from compError import doCompError
+
 class TOKENTYPE(Enum):
     SEMICOLON = auto() # ;
     COMMA = auto() # ,
@@ -30,7 +32,6 @@ class TOKENTYPE(Enum):
     BOOL = auto() # bool
     VOID = auto() # void
     EOF = auto() # end of file
-    ERR = auto() # tokenizer error
     PRINT = auto() # TEMPORARY TOKEN TO TEST EXPRESSIONS
 
 class Token:
@@ -38,7 +39,7 @@ class Token:
         self.type = type
         self.word = word
         self.line = line
-    
+
     def print(self):
         print("\'" + self.word + "\' : [TOKEN_" + self.type.name + "]")
 
@@ -71,18 +72,26 @@ class Lexer:
         self.start = 0
         self.line = 1
 
+    def __error(self, err: str):
+        doCompError("On line %d:\n\t%s", (self.line, err))
+
+    def __isEnd(self):
+        return self.cursor >= self.size
+
     # peeks the current character
     def __peek(self):
-        if self.cursor < self.size:
-            return self.src[self.cursor]
-        return '\0'
+        if self.__isEnd():
+            return '\0'
+
+        return self.src[self.cursor]
 
     # grabs the current character and increments the cursor
     def __next(self):
-        if self.cursor < self.size:
-            self.cursor += 1
-            return self.src[self.cursor-1]
-        return '\0'
+        if self.__isEnd():
+            return '\0'
+
+        self.cursor += 1
+        return self.src[self.cursor-1]
 
     # returns true & consumes character if next
     def __checkNext(self, char):
@@ -142,7 +151,7 @@ class Lexer:
             '*' : (lambda : self.__makeToken(TOKENTYPE.STAR)),
             '/' : (lambda : self.__makeToken(TOKENTYPE.SLASH)),
             '=' : (lambda : self.__makeToken(TOKENTYPE.EQUALEQUAL) if self.__checkNext('=') else self.__makeToken(TOKENTYPE.EQUAL)),
-            '>' : (lambda : self.__makeToken(TOKENTYPE.GRTEQL) if self.__checkNext('=') else self.__makeToken(TOKENTYPE.GRTR)),
+            '>' : (lambda : self.__makeToken(TOKENTYPE.GRTREQL) if self.__checkNext('=') else self.__makeToken(TOKENTYPE.GRTR)),
             '<' : (lambda : self.__makeToken(TOKENTYPE.LESSEQL) if self.__checkNext('=') else self.__makeToken(TOKENTYPE.LESS)),
             '\0': (lambda : self.__makeToken(TOKENTYPE.EOF)),
         }

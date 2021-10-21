@@ -6,7 +6,7 @@ testSrc = """
 int total = 0;
 int x = 10;
 
-while (x > 0) {
+while (x >= 1) {
     total = total + x;
     x = x - 1;
 }

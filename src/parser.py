@@ -2,6 +2,7 @@ from enum import IntEnum, auto
 from collections.abc import Callable
 from tokenizer import Lexer, TOKENTYPE, Token
 from type import *
+from compError import doCompError
 import thinlib
 
 class PRECTYPE(IntEnum):
@@ -72,6 +73,8 @@ class Parser:
             TOKENTYPE.EQUALEQUAL:   _PrecRule(PRECTYPE.COMPAR,  None,           self.__binOp),
             TOKENTYPE.GRTR:         _PrecRule(PRECTYPE.COMPAR,  None,           self.__binOp),
             TOKENTYPE.LESS:         _PrecRule(PRECTYPE.COMPAR,  None,           self.__binOp),
+            TOKENTYPE.GRTREQL:      _PrecRule(PRECTYPE.COMPAR,  None,           self.__binOp),
+            TOKENTYPE.LESSEQL:      _PrecRule(PRECTYPE.COMPAR,  None,           self.__binOp),
 
             TOKENTYPE.LPAREN:       _PrecRule(PRECTYPE.CALL,    self.__group,   self.__callSub),
             TOKENTYPE.RPAREN:       _PrecRule(PRECTYPE.NONE,    None,           None),
@@ -95,8 +98,7 @@ class Parser:
         self.constants: list[_Constant] = [] # holds data like strings, constant arrays, etc. [TODO]
 
     def __errorAt(self, tkn: Token, err: str):
-        print("At '%s' on line %d:\n\t%s" % (tkn.word, tkn.line, err))
-        exit(1)
+        doCompError("At '%s' on line %d:\n\t%s" % (tkn.word, tkn.line, err))
 
     def __error(self, err: str):
         self.__errorAt(self.previous, err)
@@ -123,9 +125,9 @@ class Parser:
         if not self.__match(tknType):
             self.__error(errMsg)
 
-    # returns true if the parser reached the end of the token list or reached a tokenizer error
+    # returns true if the parser reached the end of the token list
     def __isEnd(self):
-        return self.__check(TOKENTYPE.EOF) or self.__check(TOKENTYPE.ERR)
+        return self.__check(TOKENTYPE.EOF)
 
     # =============== formatting for uxntal output ===============
 
@@ -404,6 +406,16 @@ class Parser:
             rtype = BoolDataType()
         elif tkn.type == TOKENTYPE.LESS:
             self.__writeBinaryOp("LTH", rtype, BoolDataType())
+            rtype = BoolDataType()
+        elif tkn.type == TOKENTYPE.GRTREQL:
+            # >= is just *not* <. so check if it's less than, and NOT the result
+            self.__writeBinaryOp("LTH", rtype, BoolDataType())
+            self.__writeOut("#01 NEQ\n")
+            rtype = BoolDataType()
+        elif tkn.type == TOKENTYPE.LESSEQL:
+            # <= is just *not* >. so check if it's greater than, and NOT the result
+            self.__writeBinaryOp("GTH", rtype, BoolDataType())
+            self.__writeOut("#01 NEQ\n")
             rtype = BoolDataType()
         else: # should never happen
             self.__errorAt(tkn, "Invalid binary operator token!")
