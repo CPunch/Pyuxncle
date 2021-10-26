@@ -16,6 +16,9 @@ class TOKENTYPE(Enum):
     MINUS = auto() # -
     STAR = auto() # *
     SLASH = auto() # /
+    AMPER = auto() # &
+    MINUSGRTR = auto() # ->
+    DOT = auto() # .
     EQUAL = auto() # =
     EQUALEQUAL = auto() # ==
     GRTREQL = auto() # >=
@@ -147,9 +150,10 @@ class Lexer:
             '[' : (lambda : self.__makeToken(TOKENTYPE.LBRACKET)),
             ']' : (lambda : self.__makeToken(TOKENTYPE.RBRACKET)),
             '+' : (lambda : self.__makeToken(TOKENTYPE.PLUS)),
-            '-' : (lambda : self.__makeToken(TOKENTYPE.MINUS)),
+            '-' : (lambda : self.__makeToken(TOKENTYPE.MINUSGRTR) if self.__checkNext('>') else self.__makeToken(TOKENTYPE.MINUS)),
             '*' : (lambda : self.__makeToken(TOKENTYPE.STAR)),
             '/' : (lambda : self.__makeToken(TOKENTYPE.SLASH)),
+            '&' : (lambda : self.__makeToken(TOKENTYPE.AMPER)),
             '=' : (lambda : self.__makeToken(TOKENTYPE.EQUALEQUAL) if self.__checkNext('=') else self.__makeToken(TOKENTYPE.EQUAL)),
             '>' : (lambda : self.__makeToken(TOKENTYPE.GRTREQL) if self.__checkNext('=') else self.__makeToken(TOKENTYPE.GRTR)),
             '<' : (lambda : self.__makeToken(TOKENTYPE.LESSEQL) if self.__checkNext('=') else self.__makeToken(TOKENTYPE.LESS)),
@@ -166,5 +170,5 @@ class Lexer:
         elif _isNum(c):
             return self.__readNumber()
         else:
-            return self.__makeToken(TOKENTYPE.ERR)
+            return self.__error("Unrecognized token '%s'!" % self.__getWord())
 

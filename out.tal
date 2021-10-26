@@ -25,7 +25,28 @@ ADD2
 &lbl2
 .globals/total LDZ2
 ;print-decimal JSR2 #20 .Console/char DEO
+#0005 ;SUB_fact  JSR2
+;print-decimal JSR2 #20 .Console/char DEO
 BRK
+
+@SUB_fact
+#0002 ;alloc-uxncle JSR2
+#0002 ;poke-uxncle-short JSR2
+#0002 ;peek-uxncle-short JSR2
+#0001 GTH2
+#01 NEQ ,&lbl3 JCN
+#0002 ;peek-uxncle-short JSR2
+#0002 ;peek-uxncle-short JSR2
+#0001 SUB2
+;SUB_fact  JSR2
+MUL2
+#0002 ;dealloc-uxncle JSR2
+JMP2r
+&lbl3
+#0001 #0002 ;dealloc-uxncle JSR2
+JMP2r
+#0002 ;dealloc-uxncle JSR2
+JMP2r
 
 @print-decimal
 	#00 .number/started STZ

@@ -5,6 +5,7 @@ class DTYPES(Enum):
     BOOL = auto()
     VOID = auto()
     SUB = auto()
+    POINTER  = auto()
 
 class DataType:
     def __init__(self, name: str, type: DTYPES):
@@ -17,6 +18,17 @@ class DataType:
     # should be overwritten for usertypes
     def compare(self, type):
         return self.type == type.type
+
+class Pointer(DataType):
+    def __init__(self, pointerToType: DataType):
+        super().__init__("*%s" % pointerToType.name, DTYPES.POINTER)
+        self.pType = pointerToType
+
+    def getSize(self) -> int:
+        return 2 # we push the absolute address to the stack
+
+    def compare(self, other):
+        return other.type == DTYPES.POINTER and other.pType.compare(self.pType)
 
 class Subroutine(DataType):
     def __init__(self, retType: DataType, name: str):
@@ -33,7 +45,7 @@ class Subroutine(DataType):
         self.instrs = self.instrs + uxntal
 
     def getSize(self) -> int:
-        return 0 # we don't actually push anything until it's called or used in an arithmetic expression (or type casted)
+        return 2 # the absolute address is pushed onto the stack :D
 
 class IntDataType(DataType):
     def __init__(self):

@@ -69,7 +69,8 @@ class Parser:
             TOKENTYPE.PLUS:         _PrecRule(PRECTYPE.TERM,    None,           self.__binOp),
             TOKENTYPE.MINUS:        _PrecRule(PRECTYPE.TERM,    None,           self.__binOp),
             TOKENTYPE.STAR:         _PrecRule(PRECTYPE.FACTOR,  None,           self.__binOp),
-            TOKENTYPE.SLASH:        _PrecRule(PRECTYPE.FACTOR,  None,           self.__binOp),
+            TOKENTYPE.SLASH:        _PrecRule(PRECTYPE.FACTOR,  self.__pointer, self.__binOp),
+            TOKENTYPE.AMPER:        _PrecRule(PRECTYPE.NONE,    self.__ampersand, None),
             TOKENTYPE.EQUALEQUAL:   _PrecRule(PRECTYPE.COMPAR,  None,           self.__binOp),
             TOKENTYPE.GRTR:         _PrecRule(PRECTYPE.COMPAR,  None,           self.__binOp),
             TOKENTYPE.LESS:         _PrecRule(PRECTYPE.COMPAR,  None,           self.__binOp),
@@ -91,6 +92,7 @@ class Parser:
         }
 
         # compiler-related stuff (in the rewrite, this should be given to another module that takes care of building the output uxntal)
+        self.lefthand: list[str] = []
         self.entryInstr = ""
         self.currentSub: int = -1
         self.subs: list[_Variable] = []
@@ -129,10 +131,18 @@ class Parser:
     def __isEnd(self):
         return self.__check(TOKENTYPE.EOF)
 
+    def __pushLeftHand(self):
+        self.lefthand.append("")
+
+    def __popLeftHand(self) -> str:
+        return self.lefthand.pop()
+
     # =============== formatting for uxntal output ===============
 
     def __writeOut(self, buf: str):
-        if self.currentSub == -1: # we're not currently parsing a function, write it to the entry instructions
+        if len(self.lefthand) > 0: # we're parsing an expression that needs to be emitted after the righthand is emitted
+            self.lefthand[len(self.lefthand)-1] += buf
+        elif self.currentSub == -1: # we're not currently parsing a function, write it to the entry instructions
             self.entryInstr += buf
         else:
             self.subs[self.currentSub].dtype.addUnxtal(buf)
@@ -222,8 +232,12 @@ class Parser:
 
     # duplicates the value currently on the stack
     def __dupVal(self, dtype: DataType):
-        if dtype.type == DTYPES.INT:
+        if dtype.getSize() == 2:
             self.__writeOut("DUP2\n")
+        elif dtype.getSize() == 1:
+            self.__writeOut("DUP\n")
+        else:
+            self.__error("Can't dup values greater than 2!")
 
         self.pushed += dtype.getSize()
 
@@ -257,39 +271,28 @@ class Parser:
     # reads variable from heap & pushes to stack
     def __getVar(self, varInfo: _VarInfo):
         dtype = varInfo.var.dtype
-        indx = 0
 
         # is it a global?
         if varInfo.indx == -1:
-            # read global 2 bytes at a time
-            while indx < dtype.getSize() - 1:
-                if indx == 0:
-                    self.__writeOut(".globals/%s LDZ2\n" % varInfo.var.name)
-                else:
-                    self.__writeOut(".globals/%s " % varInfo.var.name)
-                    self.__writeByteLiteral(indx) # add offset to read from
-                    self.__writeOut("ADD LDZ2")
-                indx += 2
-
-            # read final byte (if needed)
-            if indx == dtype.getSize() - 1:
-                if indx == 0:
-                    self.__writeOut(".globals/%s LDZ\n" % varInfo.var.name)
-                else:
-                    self.__writeOut(".globals/%s " % varInfo.var.name)
-                    self.__writeByteLiteral(indx) # add offset to read from
-                    self.__writeOut("ADD LDZ")
+            # read global
+            if dtype.getSize() == 2:
+                self.__writeOut(".globals/%s LDZ2\n" % varInfo.var.name)
+            elif dtype.getSize() == 1:
+                self.__writeOut(".globals/%s LDZ\n" % varInfo.var.name)
+            else:
+                self.__error("Can't set '%s': size greater than 2!" % varInfo.var.name)
+        elif varInfo.indx == -2: # it's a sub, out the absolute address
+            self.__writeOut(";SUB_%s " % varInfo.var.name)
         else: # it's a normal var stored in the heap
-            # read variable from the heap 2 bytes at a time
-            while indx < dtype.getSize() - 1:
-                self.__writeIntLiteral(varInfo.indx + indx)
+            # read variable from the heap
+            if dtype.getSize() == 2:
+                self.__writeIntLiteral(varInfo.indx)
                 self.__writeOut(";peek-uxncle-short JSR2\n")
-                indx += 2
-
-            # read final byte (if needed)
-            if indx == dtype.getSize() - 1:
-                self.__writeIntLiteral(varInfo.indx + indx)
+            elif dtype.getSize() == 1:
+                self.__writeIntLiteral(varInfo.indx)
                 self.__writeOut(";peek-uxncle JSR2\n")
+            else:
+                self.__error("Can't set '%s': size greater than 2!" % varInfo.var.name)
 
         # peek-uxncle pushes the value from the heap to the stack
         self.pushed += dtype.getSize()
@@ -297,42 +300,46 @@ class Parser:
     # pops value from stack and writes to heap
     def __setVar(self, varInfo: _VarInfo):
         dtype = varInfo.var.dtype
-        indx = 0
 
         # is it a global?
         if varInfo.indx == -1:
-            # read global 2 bytes at a time
-            while indx < dtype.getSize() - 1:
-                if indx == 0:
-                    self.__writeOut(".globals/%s STZ2\n" % varInfo.var.name)
-                else:
-                    self.__writeOut(".globals/%s " % varInfo.var.name)
-                    self.__writeByteLiteral(indx) # add offset to write to
-                    self.__writeOut("ADD STZ2")
-                indx += 2
-
-            # read final byte (if needed)
-            if indx == dtype.getSize() - 1:
-                if indx == 0:
-                    self.__writeOut(".globals/%s STZ\n" % varInfo.var.name)
-                else:
-                    self.__writeOut(".globals/%s " % varInfo.var.name)
-                    self.__writeByteLiteral(indx) # add offset to write to
-                    self.__writeOut("ADD STZ")
+            # set global
+            if dtype.getSize() == 2:
+                self.__writeOut(".globals/%s STZ2\n" % varInfo.var.name)
+            elif dtype.getSize() == 1:
+                self.__writeOut(".globals/%s STZ\n" % varInfo.var.name)
+            else:
+                self.__error("Can't set '%s': size greater than 2!" % varInfo.var.name)
+        elif varInfo.indx == -2: # it's a sub, can't set that!
+            self.__error("Can't set '%s': constant function!" % varInfo.var.name)
         else: # it's a normal var stored in the heap
-            # read variable from the heap 2 bytes at a time
-            while indx < dtype.getSize() - 1:
-                self.__writeIntLiteral(varInfo.indx + indx)
+            # set variable
+            if dtype.getSize() == 2:
+                self.__writeIntLiteral(varInfo.indx)
                 self.__writeOut(";poke-uxncle-short JSR2\n")
-                indx += 2
-
-            # read final byte (if needed)
-            if indx == dtype.getSize() - 1:
-                self.__writeIntLiteral(varInfo.indx + indx)
+            elif dtype.getSize() == 1:
+                self.__writeIntLiteral(varInfo.indx)
                 self.__writeOut(";poke-uxncle JSR2\n")
+            else:
+                self.__error("Can't set '%s': size greater than 2!" % varInfo.var.name)
+
 
         # poke-uxncle pops the value from the stack
         self.pushed -= dtype.getSize()
+
+    def __getVarAddr(self, varInfo: _VarInfo):
+        dtype = varInfo.var.dtype
+
+        if varInfo.indx == -1: # it's a global! our job is easy, just push the absolute address
+            self.__writeOut("#00 .globals/%s " % varInfo.var.name)
+        elif varInfo.indx == -2: # it's a subroutine! out job is easy again, just push the absolute address
+            self.__writeOut(";%s " % dtype.subname)
+        else: # it's a normal variable, we'll need to push it's heap address.
+            self.__writeOut(".uxncle/heap LDZ2 ")
+            self.__writeIntLiteral(varInfo.indx)
+            self.__writeOut("SUB2\n") # subtract our index from the top heap address. now the absolute address of the local var is on the stack :D
+
+        self.pushed += 2 # we pushed an absolute address onto the stack
 
     # expects fromType to already be on the stack
     def __tryTypeCast(self, fromType: DataType, toType: DataType) -> bool:
@@ -350,18 +357,21 @@ class Parser:
         elif fromType.type == DTYPES.BOOL and toType.type == DTYPES.INT:
             self.__writeOut("#00 SWP ")
             return True
-        # convert subroutine to INT, (push the absolute address !)
-        elif fromType.type == DTYPES.SUB and toType.type == DTYPES.INT:
-            self.__writeOut(";%s " % fromType.subname)
+        # convert pointer to INT, (it's already the proper size)
+        elif fromType.type == DTYPES.POINTER and toType.type == DTYPES.INT:
             return True
 
         return False
+
+    # walks opcodes after the identifier :TODO
+    def __walkIdent(self, LeftType: DataType, expectAddress: bool):
+        pass
 
     # ======================== parse rules =======================
 
     def __getRule(self, tkn: TOKENTYPE) -> _PrecRule:
         if tkn.type not in self.parseTable:
-            self.__errorAt(tkn, "Unknown Token")
+            self.__errorAt(tkn, "Unknown Token, maybe forgot a ';'?")
 
         return self.parseTable[tkn.type]
 
@@ -422,13 +432,73 @@ class Parser:
 
         return rtype
 
+    def __ampersand(self, leftType: DataType, canAssign: bool, expectValue: bool, precLevel: PRECTYPE) -> DataType:
+        self.__consume(TOKENTYPE.IDENT, "Expected identifier after '&'!")
+        ident = self.previous
+
+        # check if the identifier exists
+        varInfo = self.__findVar(ident.word)
+        if varInfo == None:
+            self.__error("Unknown identifier '%s'!" % ident.word)
+
+        # TODO: call __walkIdent
+
+        self.__getVarAddr(varInfo)
+        return Pointer(varInfo.var.dtype)
+
+    def __pointer(self, leftType: DataType, canAssign: bool, expectValue: bool, precLevel: PRECTYPE) -> DataType:
+        ltype = self.__expression(False) # we don't want to emit the instructions immediately, we'll need to emit them after the value (if we are setting) is on the stack
+        leftExpr = self.__popLeftHand() # grab the not-yet-emitted lefthand expression instructions
+
+        if not ltype.type == DTYPES.POINTER:
+            self.__error("Expected expression to evaluate to a pointer, got '%s'!", ltype.name)
+
+        if canAssign and self.__match(TOKENTYPE.EQUAL): # set the address to the next expression
+            rtype = self.__expression(True)
+
+            # try to convert data to the expected type
+            if self.__tryTypeCast(rtype, ltype.pType):
+                self.__error("Couldn't convert expression of type '%s' to '%s'!" % (rtype.name, ltype.pType.name))
+
+            if expectValue:
+                self.__dupVal(ltype.pType)
+
+            # emit lefthand expression (the address)
+            self.__writeOut(leftExpr)
+
+            # store the data at the addr
+            if ltype.pType.getSize() == 2:
+                self.__writeOut("STA2\n")
+            elif ltype.pType.getSize() == 1:
+                self.__writeOut("STA\n")
+
+            self.pushed -= ltype.pType.getSize()
+
+            if not expectValue: # value isn't expected on the stack
+                return
+        else: # grab the value at the address
+            # emit the size of the data on the stack
+            self.__writeByteLiteral(ltype.pType.getSize())
+
+            # emit lefthand expression (the address)
+            self.__writeOut(leftExpr)
+
+            # load the data from the addr
+            if ltype.pType.getSize() == 2:
+                self.__writeOut("LDA2\n")
+            elif ltype.pType.getSize() == 1:
+                self.__writeOut("LDA\n")
+
+            self.pushed += ltype.pType.getSize()
+
     def __callSub(self, sub: Subroutine, canAssign: bool, expectValue: bool, precLevel: PRECTYPE):
         if not sub.type == DTYPES.SUB:
             self.__error("Expression of type '%s' is not callable!" % sub.name)
 
+        subInstr = self.__popLeftHand() # grab instructions that get the sub address
         for i in range(len(sub.args)):
             arg = sub.args[i]
-            exprType = self.__expression()
+            exprType = self.__expression(True)
 
             if not self.__tryTypeCast(exprType, arg):
                 self.__error("Expected expression of type '%s' for parameter #%d, got '%s'!" % (arg.name, i+1, exprType.name))
@@ -441,7 +511,9 @@ class Parser:
         self.__consume(TOKENTYPE.RPAREN, "Expected ')' to end function call!")
 
         # call subroutine
-        self.__writeOut(";%s JSR2\n" % sub.subname)
+        self.__pushLeftHand() # push another LeftHand expression
+        self.__writeOut("%s JSR2\n" % subInstr)
+        self.pushed -= sub.getSize() # absolute address is popped
 
         # track pushed value on stack
         self.pushed += sub.retType.getSize()
@@ -451,13 +523,13 @@ class Parser:
     def __ident(self, leftType: DataType, canAssign: bool, expectValue: bool, precLevel: PRECTYPE) -> DataType:
         ident = self.previous
 
-        # check if the identifier is a variable
+        # check if the identifier exists
         varInfo = self.__findVar(ident.word)
         if not varInfo == None:
             ltype = varInfo.var.dtype
             # it's a variable, if we *can* assign & there's an EQUAL token, handle assignment
             if canAssign and self.__match(TOKENTYPE.EQUAL):
-                rtype = self.__expression()
+                rtype = self.__expression(True)
 
                 # try to typecast by default
                 if not self.__tryTypeCast(rtype, ltype):
@@ -493,6 +565,7 @@ class Parser:
 
         canAssign: bool = precLevel.value <= PRECTYPE.ASSIGNMENT
 
+        self.__pushLeftHand() # encapsulate the prefix & postfix together
         dtype = func(VoidDataType(), canAssign, expectValue, precLevel)
         while precLevel.value <= self.__getRule(self.current).prec.value:
             func = self.__getRule(self.current).infix
@@ -501,6 +574,7 @@ class Parser:
             self.__advance()
             dtype = func(dtype, canAssign, expectValue, self.__getRule(self.previous).prec)
 
+        self.__writeOut(self.__popLeftHand())
         return dtype
 
     # ========================= statements =======================
@@ -573,6 +647,9 @@ class Parser:
 
     # returns true if it parsed a function
     def __varTypeState(self, dtype: DataType):
+        if self.__match(TOKENTYPE.STAR): # it's a pointer
+            dtype = Pointer(dtype)
+
         self.__consume(TOKENTYPE.IDENT, "Expected identifier!")
 
         ident = self.previous
@@ -584,7 +661,7 @@ class Parser:
         varInfo = self.__addScopeVar(_Variable(ident.word, dtype))
 
         if self.__match(TOKENTYPE.EQUAL):
-            rtype = self.__expression()
+            rtype = self.__expression(True)
 
             if not self.__tryTypeCast(rtype, dtype):
                 self.__error("Expected expession of type '%s', got '%s'!" % (dtype.name, rtype.name))
@@ -604,7 +681,7 @@ class Parser:
         jmp = self.__newJmpLbl()
         
         # parse the expession
-        dtype = self.__expression()
+        dtype = self.__expression(True)
 
         self.__consume(TOKENTYPE.RPAREN, "Expected ')'!")
 
@@ -636,7 +713,7 @@ class Parser:
 
         # declare the label that will be the start of the loop
         self.__declareLbl(jmp)
-        dtype = self.__expression()
+        dtype = self.__expression(True)
 
         self.__consume(TOKENTYPE.RPAREN, "Expected ')' to end conditional expression!")
 
@@ -654,7 +731,6 @@ class Parser:
         self.__jmpLbl(jmp)
         self.__declareLbl(exitJmp)
 
-
     def __returnState(self):
         if self.currentSub == -1: # we're not currently parsing a function!
             self.error("'return' not allowed in this context!")
@@ -669,7 +745,7 @@ class Parser:
             else:
                 self.__error("Expected expression of type '%s', got 'void'!" % retType.name)
 
-        dtype = self.__expression()
+        dtype = self.__expression(True)
 
         if not self.__tryTypeCast(dtype, retType):
             self.__error("Cannot convert expression of type '%s' to return type of '%s'" % (dtype.name, retType.name))
@@ -680,8 +756,12 @@ class Parser:
         # we don't need to keep track of that value anymore
         self.pushed -= retType.getSize()
 
-    def __expression(self) -> DataType:
-        return self.__parsePrecedence(PRECTYPE.ASSIGNMENT, True)
+    def __expression(self, emitImmediately: bool) -> DataType:
+        self.__pushLeftHand() # this sets the parser to not emit directly, instead it'll output to a temporary buffer
+        dtype = self.__parsePrecedence(PRECTYPE.ASSIGNMENT, True)
+        if emitImmediately:
+            self.__writeOut(self.__popLeftHand())
+        return dtype
 
     def __voidExpression(self):
         self.__parsePrecedence(PRECTYPE.ASSIGNMENT, False)
@@ -703,7 +783,7 @@ class Parser:
         elif self.__match(TOKENTYPE.RETURN):
             self.__returnState()
         elif self.__match(TOKENTYPE.PRINT): # TEMPORARY DEBUGGING STATEMENT
-            rtype = self.__expression()
+            rtype = self.__expression(True)
             if not self.__tryTypeCast(rtype, IntDataType()):
                 self.__error("'print' only accepts integer expressions!")
             self.__writeOut(";print-decimal JSR2 #20 .Console/char DEO\n")
