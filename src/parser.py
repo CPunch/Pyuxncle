@@ -583,6 +583,9 @@ class Parser:
             dtype = self.typeTable[self.current.type]
             self.__advance()
 
+            if self.__match(TOKENTYPE.STAR): # it's a pointer
+                dtype = Pointer(dtype)
+
             # grab identifier of argument
             self.__consume(TOKENTYPE.IDENT, "Expected identifier for argument!")
             ident = self.previous
