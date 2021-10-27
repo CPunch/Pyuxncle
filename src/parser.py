@@ -324,7 +324,6 @@ class Parser:
             else:
                 self.__error("Can't set '%s': size greater than 2!" % varInfo.var.name)
 
-
         # poke-uxncle pops the value from the stack
         self.pushed -= dtype.getSize()
 
@@ -448,15 +447,15 @@ class Parser:
         return Pointer(varInfo.var.dtype)
 
     def __pointer(self, leftType: DataType, canAssign: bool, expectValue: bool, precLevel: PRECTYPE) -> DataType:
-        self.__pushLeftHand()
-        ltype = self.__parsePrecedence(PRECTYPE(int(PRECTYPE.ASSIGNMENT.value)+1), True) # we don't want to emit the instructions immediately, we'll need to emit them after the value (if we are setting) is on the stack
+        self.__pushLeftHand() # we don't want to emit the instructions immediately, we'll need to emit them after the value (if we are setting) is on the stack
+        ltype = self.__parsePrecedence(PRECTYPE(int(PRECTYPE.ASSIGNMENT.value)+1), True)
         leftExpr = self.__popLeftHand() # grab the not-yet-emitted lefthand expression instructions
 
         if not ltype.type == DTYPES.POINTER:
             self.__error("Expected expression to evaluate to a pointer, got '%s'!", ltype.name)
 
         if canAssign and self.__match(TOKENTYPE.EQUAL): # set the address to the next expression
-            rtype = self.__expression(True)
+            rtype = self.__expression()
 
             # try to convert data to the expected type
             if not self.__tryTypeCast(rtype, ltype.pType):
@@ -498,7 +497,7 @@ class Parser:
         subInstr = self.__popLeftHand() # grab instructions that get the sub address
         for i in range(len(sub.args)):
             arg = sub.args[i]
-            exprType = self.__expression(True)
+            exprType = self.__expression()
 
             if not self.__tryTypeCast(exprType, arg):
                 self.__error("Expected expression of type '%s' for parameter #%d, got '%s'!" % (arg.name, i+1, exprType.name))
@@ -529,7 +528,7 @@ class Parser:
             ltype = varInfo.var.dtype
             # it's a variable, if we *can* assign & there's an EQUAL token, handle assignment
             if canAssign and self.__match(TOKENTYPE.EQUAL):
-                rtype = self.__expression(True)
+                rtype = self.__expression()
 
                 # try to typecast by default
                 if not self.__tryTypeCast(rtype, ltype):
@@ -661,7 +660,7 @@ class Parser:
         varInfo = self.__addScopeVar(_Variable(ident.word, dtype))
 
         if self.__match(TOKENTYPE.EQUAL):
-            rtype = self.__expression(True)
+            rtype = self.__expression()
 
             if not self.__tryTypeCast(rtype, dtype):
                 self.__error("Expected expession of type '%s', got '%s'!" % (dtype.name, rtype.name))
@@ -681,7 +680,7 @@ class Parser:
         jmp = self.__newJmpLbl()
         
         # parse the expession
-        dtype = self.__expression(True)
+        dtype = self.__expression()
 
         self.__consume(TOKENTYPE.RPAREN, "Expected ')'!")
 
@@ -713,7 +712,7 @@ class Parser:
 
         # declare the label that will be the start of the loop
         self.__declareLbl(jmp)
-        dtype = self.__expression(True)
+        dtype = self.__expression()
 
         self.__consume(TOKENTYPE.RPAREN, "Expected ')' to end conditional expression!")
 
@@ -745,7 +744,7 @@ class Parser:
             else:
                 self.__error("Expected expression of type '%s', got 'void'!" % retType.name)
 
-        dtype = self.__expression(True)
+        dtype = self.__expression()
 
         if not self.__tryTypeCast(dtype, retType):
             self.__error("Cannot convert expression of type '%s' to return type of '%s'" % (dtype.name, retType.name))
@@ -756,11 +755,10 @@ class Parser:
         # we don't need to keep track of that value anymore
         self.pushed -= retType.getSize()
 
-    def __expression(self, emitImmediately: bool) -> DataType:
+    def __expression(self) -> DataType:
         self.__pushLeftHand() # this sets the parser to not emit directly, instead it'll output to a temporary buffer
         dtype = self.__parsePrecedence(PRECTYPE.ASSIGNMENT, True)
-        if emitImmediately:
-            self.__writeOut(self.__popLeftHand())
+        self.__writeOut(self.__popLeftHand())
         return dtype
 
     def __voidExpression(self):
@@ -783,7 +781,7 @@ class Parser:
         elif self.__match(TOKENTYPE.RETURN):
             self.__returnState()
         elif self.__match(TOKENTYPE.PRINT): # TEMPORARY DEBUGGING STATEMENT
-            rtype = self.__expression(True)
+            rtype = self.__expression()
             if not self.__tryTypeCast(rtype, IntDataType()):
                 self.__error("'print' only accepts integer expressions!")
             self.__writeOut(";print-decimal JSR2 #20 .Console/char DEO\n")
