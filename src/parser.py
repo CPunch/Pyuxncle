@@ -759,10 +759,7 @@ class Parser:
         self.pushed -= retType.getSize()
 
     def __expression(self) -> DataType:
-        self.__pushLeftHand() # this sets the parser to not emit directly, instead it'll output to a temporary buffer
-        dtype = self.__parsePrecedence(PRECTYPE.ASSIGNMENT, True)
-        self.__writeOut(self.__popLeftHand())
-        return dtype
+        return self.__parsePrecedence(PRECTYPE.ASSIGNMENT, True)
 
     def __voidExpression(self):
         self.__parsePrecedence(PRECTYPE.ASSIGNMENT, False)
