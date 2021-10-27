@@ -3,50 +3,16 @@
 |10 @Console [ &pad $8 &char $1 &byte $1 &short $2 &string $2 ]|0000
 @uxncle [ &heap $2 ]
 @number [ &started $1 ]
-@globals [ &total $2 &x $2 ]
+@globals [ &ptr $2 &i $2 ]
 
 |0100
 ;uxncle-heap .uxncle/heap STZ2
-#0000 .globals/total STZ2
-#000a .globals/x STZ2
-&lbl1
-.globals/x LDZ2
-#0001 LTH2
-#01 NEQ
-#01 NEQ ,&lbl2 JCN
-.globals/total LDZ2
-.globals/x LDZ2
-ADD2
-.globals/total STZ2
-.globals/x LDZ2
-#0001 SUB2
-.globals/x STZ2
-,&lbl1 JMP
-&lbl2
-.globals/total LDZ2
-;print-decimal JSR2 #20 .Console/char DEO
-#0005 ;SUB_fact  JSR2
+#00 .globals/i .globals/ptr STZ2
+#0002 .globals/ptr LDZ2
+STA2
+.globals/i LDZ2
 ;print-decimal JSR2 #20 .Console/char DEO
 BRK
-
-@SUB_fact
-#0002 ;alloc-uxncle JSR2
-#0002 ;poke-uxncle-short JSR2
-#0002 ;peek-uxncle-short JSR2
-#0001 GTH2
-#01 NEQ ,&lbl3 JCN
-#0002 ;peek-uxncle-short JSR2
-#0002 ;peek-uxncle-short JSR2
-#0001 SUB2
-;SUB_fact  JSR2
-MUL2
-#0002 ;dealloc-uxncle JSR2
-JMP2r
-&lbl3
-#0001 #0002 ;dealloc-uxncle JSR2
-JMP2r
-#0002 ;dealloc-uxncle JSR2
-JMP2r
 
 @print-decimal
 	#00 .number/started STZ

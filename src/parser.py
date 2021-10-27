@@ -55,11 +55,11 @@ class _Scope:
         return totalSz
 
 class Parser:
-    def __init__(self, source: str):
+    def __init__(self, source: str, outFile: str):
         self.lexer = Lexer(source)
         self.current: Token = None
         self.previous: Token = None
-        self.out = open("out.tal", "w")
+        self.out = open(outFile, "w")
         self.scopeStack: list[_Scope] = []
         self.pushed = 0
         self.jmpIDS = 0
@@ -68,9 +68,10 @@ class Parser:
             TOKENTYPE.SEMICOLON:    _PrecRule(PRECTYPE.NONE,    None,           None),
             TOKENTYPE.PLUS:         _PrecRule(PRECTYPE.TERM,    None,           self.__binOp),
             TOKENTYPE.MINUS:        _PrecRule(PRECTYPE.TERM,    None,           self.__binOp),
-            TOKENTYPE.STAR:         _PrecRule(PRECTYPE.FACTOR,  None,           self.__binOp),
-            TOKENTYPE.SLASH:        _PrecRule(PRECTYPE.FACTOR,  self.__pointer, self.__binOp),
+            TOKENTYPE.STAR:         _PrecRule(PRECTYPE.FACTOR,  self.__pointer, self.__binOp),
+            TOKENTYPE.SLASH:        _PrecRule(PRECTYPE.FACTOR,  None,           self.__binOp),
             TOKENTYPE.AMPER:        _PrecRule(PRECTYPE.NONE,    self.__ampersand, None),
+            TOKENTYPE.EQUAL:        _PrecRule(PRECTYPE.NONE,    None,           None),
             TOKENTYPE.EQUALEQUAL:   _PrecRule(PRECTYPE.COMPAR,  None,           self.__binOp),
             TOKENTYPE.GRTR:         _PrecRule(PRECTYPE.COMPAR,  None,           self.__binOp),
             TOKENTYPE.LESS:         _PrecRule(PRECTYPE.COMPAR,  None,           self.__binOp),
@@ -447,7 +448,8 @@ class Parser:
         return Pointer(varInfo.var.dtype)
 
     def __pointer(self, leftType: DataType, canAssign: bool, expectValue: bool, precLevel: PRECTYPE) -> DataType:
-        ltype = self.__expression(False) # we don't want to emit the instructions immediately, we'll need to emit them after the value (if we are setting) is on the stack
+        self.__pushLeftHand()
+        ltype = self.__parsePrecedence(PRECTYPE(int(PRECTYPE.ASSIGNMENT.value)+1), True) # we don't want to emit the instructions immediately, we'll need to emit them after the value (if we are setting) is on the stack
         leftExpr = self.__popLeftHand() # grab the not-yet-emitted lefthand expression instructions
 
         if not ltype.type == DTYPES.POINTER:
@@ -457,7 +459,7 @@ class Parser:
             rtype = self.__expression(True)
 
             # try to convert data to the expected type
-            if self.__tryTypeCast(rtype, ltype.pType):
+            if not self.__tryTypeCast(rtype, ltype.pType):
                 self.__error("Couldn't convert expression of type '%s' to '%s'!" % (rtype.name, ltype.pType.name))
 
             if expectValue:
@@ -472,10 +474,8 @@ class Parser:
             elif ltype.pType.getSize() == 1:
                 self.__writeOut("STA\n")
 
-            self.pushed -= ltype.pType.getSize()
-
-            if not expectValue: # value isn't expected on the stack
-                return
+            # we popped the value AND the pointer
+            self.pushed -= ltype.pType.getSize() + ltype.getSize()
         else: # grab the value at the address
             # emit the size of the data on the stack
             self.__writeByteLiteral(ltype.pType.getSize())

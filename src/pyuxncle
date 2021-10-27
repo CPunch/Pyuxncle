@@ -1,26 +1,15 @@
 #!/usr/bin/python
 
+import sys
+from pathlib import Path
 from parser import Parser
 
-testSrc = """
-int total = 0;
-int x = 10;
+if __name__ == '__main__':
+    if not len(sys.argv) == 3:
+        print("Usage: pyuxncle [source] [out]")
 
-while (x >= 1) {
-    total = total + x;
-    x = x - 1;
-}
-
-int fact(int i) {
-    if (i > 1)
-        return i * fact(i-1);
-
-    return 1;
-}
-
-print total;
-print fact(5);
-"""
-
-parse = Parser(testSrc)
-parse.parse()
+    inFile = sys.argv[1]
+    outFile = sys.argv[2]
+    src = Path(inFile).read_text()
+    parse = Parser(src, outFile)
+    parse.parse()
