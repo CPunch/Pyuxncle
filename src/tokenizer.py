@@ -30,12 +30,14 @@ class TOKENTYPE(Enum):
     WHILE = auto() # while
     RETURN = auto() # return
     IDENT = auto() # Identifier_123
-    NUM = auto() # 1234567890
+    NUM = auto() # 1234567890 or 0xFF
+    CHARLIT = auto() # 'a'
     INT = auto() # int
+    CHAR = auto() # char
     BOOL = auto() # bool
     VOID = auto() # void
+    DEVICE = auto() # device
     EOF = auto() # end of file
-    PRINT = auto() # TEMPORARY TOKEN TO TEST EXPRESSIONS
 
 class Token:
     def __init__(self, type: TOKENTYPE, word: str, line: int):
@@ -52,10 +54,10 @@ _ReservedWordTable = {
     "while" : TOKENTYPE.WHILE,
     "return": TOKENTYPE.RETURN,
     "int"   : TOKENTYPE.INT,
+    "char"  : TOKENTYPE.CHAR,
     "bool"  : TOKENTYPE.BOOL,
     "void"  : TOKENTYPE.VOID,
-
-    "print" : TOKENTYPE.PRINT
+    "device": TOKENTYPE.DEVICE
 }
 
 def _isWhitespace(c):
@@ -63,6 +65,9 @@ def _isWhitespace(c):
 
 def _isNum(c):
     return c in string.digits
+
+def _isHex(c):
+    return c in string.hexdigits
 
 def _isAlpha(c):
     return c in (string.ascii_letters + "_")
@@ -76,7 +81,7 @@ class Lexer:
         self.line = 1
 
     def __error(self, err: str):
-        doCompError("On line %d:\n\t%s", (self.line, err))
+        doCompError("On line %d:\n\t%s" % (self.line, err))
 
     def __isEnd(self):
         return self.cursor >= self.size
@@ -124,8 +129,23 @@ class Lexer:
             return self.__makeToken(_ReservedWordTable[self.__getWord()])
 
         return self.__makeToken(TOKENTYPE.IDENT)
-    
+
+    # TODO: support special characters eg. '\n', '\r', etc.
+    def __readCharacter(self):
+        self.__next()
+        
+        if not self.__checkNext('\''):
+            self.__error("Unended character literal!")
+
+        return self.__makeToken(TOKENTYPE.CHARLIT)
+
     def __readNumber(self):
+        if self.__checkNext('x') or self.__checkNext('X'): # it's a hexadecimal digit
+            while (_isHex(self.__peek())):
+                self.__next()
+
+            return self.__makeToken(TOKENTYPE.NUM)
+
         while (_isNum(self.__peek())):
             self.__next()
 
@@ -154,6 +174,7 @@ class Lexer:
             '*' : (lambda : self.__makeToken(TOKENTYPE.STAR)),
             '/' : (lambda : self.__makeToken(TOKENTYPE.SLASH)),
             '&' : (lambda : self.__makeToken(TOKENTYPE.AMPER)),
+            '.' : (lambda : self.__makeToken(TOKENTYPE.DOT)),
             '=' : (lambda : self.__makeToken(TOKENTYPE.EQUALEQUAL) if self.__checkNext('=') else self.__makeToken(TOKENTYPE.EQUAL)),
             '>' : (lambda : self.__makeToken(TOKENTYPE.GRTREQL) if self.__checkNext('=') else self.__makeToken(TOKENTYPE.GRTR)),
             '<' : (lambda : self.__makeToken(TOKENTYPE.LESSEQL) if self.__checkNext('=') else self.__makeToken(TOKENTYPE.LESS)),

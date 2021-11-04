@@ -21,30 +21,19 @@ class _PrecRule:
         self.prefix = prefix
         self.infix = infix
 
-class _Variable:
-    def __init__(self, name: str, dtype: DataType):
-        self.name = name
-        self.dtype = dtype
-
 class _Constant:
     def __init__(self, id: int, data: str):
         self.id = id
         self.data = data
 
-# variable info, including the variable (name & datatype) and the index in the stack
-class _VarInfo:
-    def __init__(self, var: _Variable, indx: int): # indx of -1 means a global, -2 means subroutine
-        self.var = var
-        self.indx = indx
-
 class _Scope:
     def __init__(self):
         # array of declared variables (and their respective locations in the stack)
-        self.vars: list[_Variable] = []
+        self.vars: list[Variable] = []
         self.allocated = 0
         self.instrs = ''
 
-    def addVar(self, var: _Variable):
+    def addVar(self, var: Variable):
         self.vars.append(var)
 
     def getSize(self):
@@ -89,6 +78,7 @@ class Parser:
         self.typeTable = {
             TOKENTYPE.INT : IntDataType(),
             TOKENTYPE.BOOL : BoolDataType(),
+            TOKENTYPE.CHAR : BoolDataType(),
             TOKENTYPE.VOID : VoidDataType()
         }
 
@@ -96,8 +86,9 @@ class Parser:
         self.lefthand: list[str] = []
         self.entryInstr = ""
         self.currentSub: int = -1
-        self.subs: list[_Variable] = []
-        self.globals: list[_Variable] = []
+        self.subs: list[Variable] = []
+        self.globals: list[Variable] = []
+        self.devices: list[Device] = []
         self.constants: list[_Constant] = [] # holds data like strings, constant arrays, etc. [TODO]
 
     def __errorAt(self, tkn: Token, err: str):
@@ -137,6 +128,27 @@ class Parser:
 
     def __popLeftHand(self) -> str:
         return self.lefthand.pop()
+
+    def __checkDataType(self) -> DataType:
+        # current token isn't a datatype
+        if not self.current.type in self.typeTable:
+            return None
+
+        dtype = self.typeTable[self.current.type]
+
+        # is it a pointer?
+        self.__advance()
+        if self.__match(TOKENTYPE.STAR):
+            dtype = Pointer(dtype)
+
+        return dtype
+
+    # forces a datatype, if not it errors
+    def __matchDataType(self) -> DataType:
+        dtype = self.__checkDataType()
+        if dtype == None:
+            self.__errorAt(self.current, "Expected a datatype!")
+        return dtype
 
     # =============== formatting for uxntal output ===============
 
@@ -186,18 +198,18 @@ class Parser:
     # ===================== scope management =====================
 
     # TODO since this a single-pass compiler, it's kind of hard to get the whole scope size before writting the allocation.
-    # maybe hold the index of the intliteral to patch int __popScope? the returned _VarInfo is valid until __addScopeVar
+    # maybe hold the index of the intliteral to patch int __popScope? the returned VarInfo is valid until __addScopeVar
     # or __popScope is called again
-    def __addScopeVar(self, var: _Variable) -> _VarInfo:
+    def __addScopeVar(self, var: Variable) -> VarInfo:
         # if we're not parsing a function, define the variable as a global
         if self.currentSub == -1:
             self.globals.append(var)
-            return _VarInfo(var, -1)
+            return VarInfo(var, -1)
 
         self.scopeStack[-1].addVar(var) # add the variable to the current scope
         self.__writeIntLiteral(var.dtype.getSize())
         self.__writeOut(";alloc-uxncle JSR2\n")
-        return _VarInfo(var, var.dtype.getSize())
+        return VarInfo(var, var.dtype.getSize())
 
     def __newScope(self):
         self.scopeStack.append(_Scope())
@@ -242,8 +254,40 @@ class Parser:
 
         self.pushed += dtype.getSize()
 
+    def __setDevice(self, dev: Device, indx: int, type: DataType):
+        self.__writeOut(".%s " % dev.devname)
+
+        if indx > 0:
+            self.__writeByteLiteral(indx)
+            self.__writeOut("ADD ")
+
+        if type.getSize() == 1:
+            self.__writeOut("DEO\n")
+        elif type.getSize() == 2:
+            self.__writeOut("DEO2\n")
+        else:
+            self.__error("Can't set value of device > 2 bytes!")
+
+        self.pushed -= type.getSize()
+
+    def __getDevice(self, dev: Device, indx: int, type: DataType):
+        self.__writeOut(".%s " % dev.devname)
+
+        if indx > 0:
+            self.__writeByteLiteral(indx)
+            self.__writeOut("ADD ")
+
+        if type.getSize() == 1:
+            self.__writeOut("DEI\n")
+        elif type.getSize() == 2:
+            self.__writeOut("DEI2\n")
+        else:
+            self.__error("Can't get value of device > 2 bytes!")
+
+        self.pushed += type.getSize()
+
     # searches for the variable in the scope stack, returns the index needed to be passed to ;poke-uxncle-* if var isn't found None is returned
-    def __findVar(self, name: str) -> _VarInfo:
+    def __findVar(self, name: str) -> VarInfo:
         indx = 0
 
         # walk each scope (from top)
@@ -255,22 +299,26 @@ class Parser:
 
                 # if the variable is the one we're looking for, return the index of the variable in our heap
                 if var.name == name:
-                    return _VarInfo(var, indx)
+                    return VarInfo(var, indx)
 
         # variable wasn't found, check for it in our global array?
         for var in self.globals:
             if var.name == name:
-                return _VarInfo(var, -1) # found it! return as a global
+                return VarInfo(var, -1) # found it! return as a global
 
         # global wasn't found, maybe its a function
         for sub in self.subs:
             if sub.name == name:
-                return _VarInfo(sub, -2)
+                return VarInfo(sub, -2)
+
+        for dev in self.devices:
+            if dev.devname == name:
+                return VarInfo(dev, -3)
 
         return None
 
     # reads variable from heap & pushes to stack
-    def __getVar(self, varInfo: _VarInfo):
+    def __getVar(self, varInfo: VarInfo):
         dtype = varInfo.var.dtype
 
         # is it a global?
@@ -299,7 +347,7 @@ class Parser:
         self.pushed += dtype.getSize()
 
     # pops value from stack and writes to heap
-    def __setVar(self, varInfo: _VarInfo):
+    def __setVar(self, varInfo: VarInfo):
         dtype = varInfo.var.dtype
 
         # is it a global?
@@ -327,13 +375,15 @@ class Parser:
         # poke-uxncle pops the value from the stack
         self.pushed -= dtype.getSize()
 
-    def __getVarAddr(self, varInfo: _VarInfo):
+    def __getVarAddr(self, varInfo: VarInfo):
         dtype = varInfo.var.dtype
 
         if varInfo.indx == -1: # it's a global! our job is easy, just push the absolute address
             self.__writeOut("#00 .globals/%s " % varInfo.var.name)
-        elif varInfo.indx == -2: # it's a subroutine! out job is easy again, just push the absolute address
+        elif varInfo.indx == -2: # it's a subroutine! our job is easy again, just push the absolute address
             self.__writeOut(";%s " % dtype.subname)
+        elif varInfo.kindx == -3: # it's a device! we only alow DEO/DEI to interact with the devices address directly
+            self.__error("Can't get address of device!")
         else: # it's a normal variable, we'll need to push it's heap address.
             self.__writeOut(".uxncle/heap LDZ2 ")
             self.__writeIntLiteral(varInfo.indx)
@@ -349,12 +399,15 @@ class Parser:
 
         self.pushed += toType.getSize() - fromType.getSize()
 
-        # convert INT to BOOL
-        if fromType.type == DTYPES.INT and toType.type == DTYPES.BOOL:
+        # convert (BOOL or CHAR) to (BOOL or CHAR) 
+        if (fromType.type == DTYPES.BOOL and toType.type == DTYPES.CHAR) or (fromType.type == DTYPES.CHAR and toType.type == DTYPES.BOOL):
+            return True # they're basically the same datatype
+        # convert INT to (BOOL or CHAR)
+        elif fromType.type == DTYPES.INT and (toType.type == DTYPES.BOOL or toType.type == DTYPES.CHAR):
             self.__writeOut("SWP POP ") # pops the most significant byte
             return True
-        # convert BOOL to INT
-        elif fromType.type == DTYPES.BOOL and toType.type == DTYPES.INT:
+        # convert (BOOL or CHAR) to INT
+        elif (fromType.type == DTYPES.BOOL or fromType.type == DTYPES.CHAR) and toType.type == DTYPES.INT:
             self.__writeOut("#00 SWP ")
             return True
         # convert pointer to INT, (it's already the proper size)
@@ -363,9 +416,8 @@ class Parser:
 
         return False
 
-    # walks opcodes after the identifier :TODO
-    def __walkIdent(self, LeftType: DataType, expectAddress: bool):
-        pass
+    def __isWalkable(self, dtype: DataType):
+        return dtype.type == DTYPES.DEV
 
     # ======================== parse rules =======================
 
@@ -381,7 +433,12 @@ class Parser:
         if not expectValue:
             return VoidDataType()
 
-        self.__writeIntLiteral(int(self.previous.word))
+        num =  int(self.previous.word, 0) # python can guess the base using the 0* prefix if you pass base 0 (https://docs.python.org/3.4/library/functions.html?highlight=int#int)
+
+        if num > 65536:
+            self.__error("Number literal '%d' is too big! (> 65536)" % num)
+
+        self.__writeIntLiteral(num)
         self.pushed += 2
         return IntDataType()
 
@@ -420,12 +477,12 @@ class Parser:
         elif tkn.type == TOKENTYPE.GRTREQL:
             # >= is just *not* <. so check if it's less than, and NOT the result
             self.__writeBinaryOp("LTH", rtype, BoolDataType())
-            self.__writeOut("#01 NEQ\n")
+            self.__writeOut("#00 EQU\n")
             rtype = BoolDataType()
         elif tkn.type == TOKENTYPE.LESSEQL:
             # <= is just *not* >. so check if it's greater than, and NOT the result
             self.__writeBinaryOp("GTH", rtype, BoolDataType())
-            self.__writeOut("#01 NEQ\n")
+            self.__writeOut("#00 EQU\n")
             rtype = BoolDataType()
         else: # should never happen
             self.__errorAt(tkn, "Invalid binary operator token!")
@@ -525,7 +582,28 @@ class Parser:
         # check if the identifier exists
         varInfo = self.__findVar(ident.word)
         if not varInfo == None:
-            ltype = varInfo.var.dtype
+            ltype: DataType = None
+            lastType = None
+            offset = 0
+
+            if varInfo.indx == -3 or varInfo == -2:
+                ltype = varInfo.var
+            else:
+                ltype = varInfo.var.dtype
+
+            while self.__isWalkable(ltype):
+                if self.__match(TOKENTYPE.DOT):
+                    lastType = ltype
+                    self.__consume(TOKENTYPE.IDENT, "Expected member identifier!")
+                    memInfo = ltype.searchMembers(self.previous.word)
+
+                    # check member actually exists
+                    if memInfo == None:
+                        self.__errorAt(self.previous, "Member '%s' not found!" % self.previous.word)
+
+                    offset += memInfo.indx
+                    ltype = memInfo.dtype
+
             # it's a variable, if we *can* assign & there's an EQUAL token, handle assignment
             if canAssign and self.__match(TOKENTYPE.EQUAL):
                 rtype = self.__expression()
@@ -539,12 +617,25 @@ class Parser:
                     self.__dupVal(ltype)
 
                 # finally, set the variable
-                self.__setVar(varInfo)
+                if not lastType == None: # we walked through '.' or '->'
+                    if lastType.type == DTYPES.DEV: # it's setting a device
+                        self.__setDevice(lastType, memInfo.indx, ltype)
+                    else:
+                        self.__error("UNIMPL!")
+                else:
+                    self.__setVar(varInfo)
             else:
                 if not expectValue and varInfo.var.dtype.type != DTYPES.SUB: # sanity check
                     return VoidDataType()
 
-                self.__getVar(varInfo)
+                # finally, get the variable
+                if not lastType == None: # we walked through '.' or '->'
+                    if lastType.type == DTYPES.DEV: # it's setting a device
+                        self.__getDevice(lastType, memInfo.indx, ltype)
+                    else:
+                        self.__error("UNIMPL!")
+                else:
+                    self.__getVar(varInfo)
 
             return ltype
         self.__errorAt(ident, "Unknown identifier!")
@@ -579,22 +670,16 @@ class Parser:
     # ========================= statements =======================
 
     def __readArgument(self, sub: Subroutine) -> Subroutine:
-        if self.current.type in self.typeTable:
-            dtype = self.typeTable[self.current.type]
-            self.__advance()
+        # grab datatype
+        dtype = self.__matchDataType()
 
-            if self.__match(TOKENTYPE.STAR): # it's a pointer
-                dtype = Pointer(dtype)
+        # grab identifier of argument
+        self.__consume(TOKENTYPE.IDENT, "Expected identifier for argument!")
+        ident = self.previous
 
-            # grab identifier of argument
-            self.__consume(TOKENTYPE.IDENT, "Expected identifier for argument!")
-            ident = self.previous
-
-            # add to scope and subroutine
-            sub.addArg(dtype)
-            self.scopeStack[-1].addVar(_Variable(ident.word, dtype))
-        else:
-            self.__errorAt(self.current, "Expected a datatype!")
+        # add to scope and subroutine
+        sub.addArg(dtype)
+        self.scopeStack[-1].addVar(Variable(ident.word, dtype))
 
         return sub
 
@@ -614,7 +699,7 @@ class Parser:
         self.__consume(TOKENTYPE.RPAREN, "Expected ')' to end argument list!")
 
         # define our function in our subroutine list
-        self.subs.append(_Variable(ident, sub))
+        self.subs.append(Variable(ident, sub))
         self.currentSub = len(self.subs) - 1
 
         # allocate enough space on the "stack" heap for our passed parameters
@@ -636,7 +721,7 @@ class Parser:
         indx = self.scopeStack[-1].getSize()
         for i in range(len(self.scopeStack[-1].vars)):
             var = self.scopeStack[-1].vars[i]
-            self.__setVar(_VarInfo(var, indx))
+            self.__setVar(VarInfo(var, indx))
             indx -= var.dtype.getSize()
 
         # parse the subroutine scope
@@ -649,18 +734,14 @@ class Parser:
 
     # returns true if it parsed a function
     def __varTypeState(self, dtype: DataType):
-        if self.__match(TOKENTYPE.STAR): # it's a pointer
-            dtype = Pointer(dtype)
-
         self.__consume(TOKENTYPE.IDENT, "Expected identifier!")
-
         ident = self.previous
 
         if self.__match(TOKENTYPE.LPAREN): # they're declaring a subroutine!
             self.__defSub(dtype, ident)
             return True
 
-        varInfo = self.__addScopeVar(_Variable(ident.word, dtype))
+        varInfo = self.__addScopeVar(Variable(ident.word, dtype))
 
         if self.__match(TOKENTYPE.EQUAL):
             rtype = self.__expression()
@@ -690,8 +771,8 @@ class Parser:
         if not self.__tryTypeCast(dtype, BoolDataType()):
             self.__error("Couldn't convert '%s' to 'bool'!" % dtype.name)
 
-        # write comparison jump, if the flag is not equal to true, skip the true block
-        self.__writeOut("#01 NEQ ")
+        # write comparison jump, if the flag is false, skip the true block
+        self.__writeOut("#00 EQU ")
         self.__jmpCondLbl(jmp)
 
         # now parse the true branch
@@ -722,8 +803,8 @@ class Parser:
         if not self.__tryTypeCast(dtype, BoolDataType()):
             self.__error("Couldn't convert '%s' to 'bool'!" % dtype.name)
 
-        # write comparison jump, if the flag is not equal to true, jump out of the loop
-        self.__writeOut("#01 NEQ ")
+        # write comparison jump, if the flag is false, jump out of the loop
+        self.__writeOut("#00 EQU ")
         self.__jmpCondLbl(exitJmp)
 
         # now parse the loop body
@@ -732,6 +813,35 @@ class Parser:
         # jump back to the start of the loop
         self.__jmpLbl(jmp)
         self.__declareLbl(exitJmp)
+
+    def __deviceState(self):
+        """
+            device Console[0x18] {
+                char character;
+                char byte;
+                int short;
+                char *str;
+            };
+        """
+        self.__consume(TOKENTYPE.IDENT, "Expected identifier for device declaration!")
+        ident = self.previous
+
+        self.__consume(TOKENTYPE.LBRACKET, "Expected '[' for start of zeropage address of device!")
+        self.__consume(TOKENTYPE.NUM, "Expected zeropage address for start of device!")
+        addr = int(self.previous.word, 0)
+        self.__consume(TOKENTYPE.RBRACKET, "Expected ']' for end of zeropage address of device!")
+        self.__consume(TOKENTYPE.LBRACE, "Expected '{' to start member list!")
+
+        dev = Device(ident.word, addr)
+
+        # consume members
+        while not self.__match(TOKENTYPE.RBRACE):
+            dtype = self.__matchDataType() # grab datatype
+            self.__consume(TOKENTYPE.IDENT, "Expected identifier!")
+            dev.addMember(Variable(self.previous.word, dtype))
+            self.__consume(TOKENTYPE.SEMICOLON, "Expected ';' to end member declaration!")
+
+        self.devices.append(dev)
 
     def __returnState(self):
         if self.currentSub == -1: # we're not currently parsing a function!
@@ -768,9 +878,9 @@ class Parser:
         ttype = self.current.type
         currentPushed = self.pushed
 
-        if ttype in self.typeTable: # is it a variable definition?
-            self.__advance()
-            if self.__varTypeState(self.typeTable[ttype]): # if we parsed a function, we don't expect a ';'
+        dtype = self.__checkDataType()
+        if not dtype == None: # is it a variable definition?
+            if self.__varTypeState(dtype): # if we parsed a function, we don't expect a ';'
                 return
         elif self.__match(TOKENTYPE.IF): # we don't expect a ';', and the stack *should* already be balanced (???) so these statements return immediately
             self.__ifState()
@@ -780,12 +890,8 @@ class Parser:
             return
         elif self.__match(TOKENTYPE.RETURN):
             self.__returnState()
-        elif self.__match(TOKENTYPE.PRINT): # TEMPORARY DEBUGGING STATEMENT
-            rtype = self.__expression()
-            if not self.__tryTypeCast(rtype, IntDataType()):
-                self.__error("'print' only accepts integer expressions!")
-            self.__writeOut(";print-decimal JSR2 #20 .Console/char DEO\n")
-            self.pushed -= 2
+        elif self.__match(TOKENTYPE.DEVICE):
+            self.__deviceState()
         elif self.__match(TOKENTYPE.LBRACE):
             self.__newScope()
             self.__parseScope(True)
@@ -805,6 +911,10 @@ class Parser:
 
         # write the license header
         self.out.write(thinlib._LICENSE)
+
+        # declare devices
+        for dev in self.devices:
+            self.out.write("|%.2x @%s [ &padd $%d ]\n" % (dev.addr, dev.devname, dev.getSize()))
 
         # write the globals into the zero area
         self.out.write("|0000\n")

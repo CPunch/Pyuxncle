@@ -1,3 +1,10 @@
+device Console[0x18] {
+    char character;
+    char byte;
+    int short;
+    char *str;
+};
+
 int total = 0;
 int x = 10;
 
@@ -13,5 +20,10 @@ int fact(int i) {
     return 1;
 }
 
-print total;
-print fact(5);
+void print(int x) {
+    Console.short = x;
+    Console.character = 0x20;
+}
+
+print(total);
+print(fact(5));
