@@ -8,11 +8,12 @@ import thinlib
 class PRECTYPE(IntEnum):
     NONE = 0,
     ASSIGNMENT = 1, # =
-    COMPAR = 2,     # == !=
-    TERM = 3,       # + - 
-    FACTOR = 4,     # * /
-    CALL = 5,       # ( )
-    PRIMARY = 6
+    INDEX = 2,      # []
+    COMPAR = 3,     # == !=
+    TERM = 4,       # + - 
+    FACTOR = 5,     # * /
+    CALL = 6,       # ( )
+    PRIMARY = 7
 
 class _PrecRule:
     def __init__(self, prec: PRECTYPE, prefix: Callable[[DataType, bool, bool, PRECTYPE], DataType],
@@ -55,6 +56,8 @@ class Parser:
         self.parseTable = {
             # TOKEN :               _PrecRule(Precedence,       prefix,         infix)
             TOKENTYPE.SEMICOLON:    _PrecRule(PRECTYPE.NONE,    None,           None),
+            TOKENTYPE.LBRACKET:     _PrecRule(PRECTYPE.INDEX,   None,           self.__index),
+            TOKENTYPE.RBRACKET:     _PrecRule(PRECTYPE.NONE,    None,           None),
             TOKENTYPE.PLUS:         _PrecRule(PRECTYPE.TERM,    None,           self.__binOp),
             TOKENTYPE.MINUS:        _PrecRule(PRECTYPE.TERM,    None,           self.__binOp),
             TOKENTYPE.STAR:         _PrecRule(PRECTYPE.FACTOR,  self.__pointer, self.__binOp),
@@ -441,6 +444,65 @@ class Parser:
         self.__writeIntLiteral(num)
         self.pushed += 2
         return IntDataType()
+
+    def __index(self, leftType: DataType, canAssign: bool, expectValue: bool, precLevel: PRECTYPE) -> DataType:
+        if leftType.type != DTYPES.POINTER:
+            self.__error("ltype error! Expected lefthand expression of pointer type! Got '%s'!" % leftType.name)
+
+        exprType = self.__expression()
+
+        if not self.__tryTypeCast(exprType, IntDataType()):
+            self.__error("Expected type of 'int' for index, got '%s'" % exprType.name)
+
+        self.__consume(TOKENTYPE.RBRACKET, "Expected ']' to end index!")
+
+        # get offset data from pointer (add index to pointer instructions)
+        self.__writeIntLiteral(leftType.pType.getPSize())
+        self.__writeOut("MUL2\n")
+
+        # add pointer and offset together to get offset
+        self.__writeOut("ADD2\n")
+
+        # popped offset
+        self.pushed -= 2
+
+        if canAssign and self.__match(TOKENTYPE.EQUAL):
+            # assigning to index
+
+            addrInstr = self.__popLeftHand() # encapsulate the pointer expression
+            self.__pushLeftHand()
+
+            # write the value that needs to be set first
+            valType = self.__expression()
+
+            if not self.__tryTypeCast(valType, leftType.pType):
+                self.__error("Expected expression of type '%s', got '%s'!" % (leftType.pType.name, valType.name))
+
+            if expectValue:
+                self.__dupVal(leftType.pType)
+
+            # push address onto stack
+            self.__writeOut(addrInstr)
+
+            # set value
+            if leftType.pType.getSize() == 2:
+                self.__writeOut("STA2\n")
+            elif leftType.pType.getSize() == 1:
+                self.__writeOut("STA\n")
+            else:
+                self.__error("Can't set value > 2 bytes!")
+        else:
+            # load data from that address (it's an absolute address on the stack)
+            if leftType.pType.getSize() == 2:
+                self.__writeOut("LDA2\n")
+            elif leftType.pType.getSize() == 1:
+                self.__writeOut("LDA\n")
+            else:
+                self.__error("Can't get value > 2 bytes!")
+
+        return leftType.pType
+
+
 
     # parses binary operators
     def __binOp(self, leftType: DataType, canAssign: bool, expectValue: bool, precLevel: PRECTYPE) -> DataType:

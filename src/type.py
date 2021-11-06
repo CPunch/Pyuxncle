@@ -21,6 +21,10 @@ class DataType:
     def compare(self, type):
         return self.type == type.type
 
+    # for pointer arithmetic
+    def getPSize(self) -> int:
+        return self.getSize()
+
 class Variable:
     def __init__(self, name: str, dtype: DataType):
         self.name = name
@@ -125,6 +129,10 @@ class VoidDataType(DataType):
 
     def getSize(self) -> int:
         return 0
+
+    # pointer arithmetic for void* acts like it's a size of 1
+    def getPSize(self) -> int:
+        return 1
 
 class VoidDataType(DataType):
     def __init__(self):

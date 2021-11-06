@@ -1,5 +1,18 @@
+device Console[0x18] {
+    char character;
+    char byte;
+    int short;
+    char *str;
+};
+
 int *ptr;
 int i;
+int a = 2;
+
+void print(int x) {
+    Console.short = x;
+    Console.character = 0x20;
+}
 
 ptr = &i;
-*ptr = 2;
+print(ptr[1]);
