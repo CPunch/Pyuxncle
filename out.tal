@@ -4,14 +4,12 @@
 |0000
 @uxncle [ &heap $2 ]
 @number [ &started $1 ]
-@globals [ &ptr $2 &i $2 &a $2 ]
+@globals [ &i $2 &a $2 ]
 
 |0100
 ;uxncle-heap .uxncle/heap STZ2
 #0002 .globals/a STZ2
-#00 .globals/i .globals/ptr STZ2
-.globals/ptr LDZ2
-#0001 #0002 MUL2
+#00 .globals/i #0001 #0002 MUL2
 ADD2
 LDA2
 ;SUB_print  JSR2

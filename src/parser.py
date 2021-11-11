@@ -703,10 +703,26 @@ class Parser:
         self.__errorAt(ident, "Unknown identifier!")
 
     def __group(self, leftType: DataType, canAssign: bool, expectValue: bool, precLevel: PRECTYPE) -> DataType:
+        # first, check for a typecast
+        dtype = self.__checkDataType()
+        if dtype != None:
+            # it's a typecast, consume next expression
+            self.__consume(TOKENTYPE.RPAREN, "Expected ')' to end open '('!")
+            exprType = self.__parsePrecedence(PRECTYPE.ASSIGNMENT, expectValue)
+
+            if not expectValue: # skip typecasting
+                return exprType
+
+            # else, try typecasting
+            if not self.__tryTypeCast(exprType, dtype):
+                self.__error("Couldn't typecast '%s' to '%s'!" % (exprType.name, dtype.name))
+
+            return dtype
+
         # parse expression
-        dtype = self.__parsePrecedence(PRECTYPE.ASSIGNMENT, expectValue)
+        exprType = self.__parsePrecedence(PRECTYPE.ASSIGNMENT, expectValue)
         self.__consume(TOKENTYPE.RPAREN, "Expected ')' to end open '('!")
-        return dtype
+        return exprType
 
     def __parsePrecedence(self, precLevel: PRECTYPE, expectValue: bool) -> DataType:
         self.__advance()
