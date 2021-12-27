@@ -23,7 +23,7 @@ device Console[0x18] {
 
 void print(int x) {
     Console.short = x;
-    Console.character = 0x20;
+    Console.character = 0x0A;
 }
 
 print(2 * 8);

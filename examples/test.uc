@@ -22,7 +22,7 @@ int fact(int i) {
 
 void print(int x) {
     Console.short = x;
-    Console.character = 0x20;
+    Console.character = 0x0A;
 }
 
 print(total);
