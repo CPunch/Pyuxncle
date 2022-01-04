@@ -7,7 +7,8 @@ class DTYPES(Enum):
     VOID = auto()
     SUB = auto()
     DEV = auto()
-    POINTER  = auto()
+    POINTER = auto()
+    ARRAY = auto()
 
 class DataType:
     def __init__(self, name: str, type: DTYPES):
@@ -23,6 +24,10 @@ class DataType:
 
     # for pointer arithmetic
     def getPSize(self) -> int:
+        return self.getSize()
+
+    # for stack pushes/pops
+    def getStackSize(self) -> int:
         return self.getSize()
 
 class Variable:
@@ -43,6 +48,9 @@ class Pointer(DataType):
 
     def getSize(self) -> int:
         return 2 # we push the absolute address to the stack
+
+    def getPSize(self) -> int:
+        return self.pType.getSize()
 
     def compare(self, other):
         return other.type == DTYPES.POINTER and other.pType.compare(self.pType)
@@ -134,9 +142,18 @@ class VoidDataType(DataType):
     def getPSize(self) -> int:
         return 1
 
-class VoidDataType(DataType):
-    def __init__(self):
-        super().__init__("void", DTYPES.VOID)
+class DataArray(DataType):
+    def __init__(self, pType: DataType, size: int):
+        super().__init__("%s[%d]" % (pType.name, size), DTYPES.ARRAY)
+        self.pType = pType
+        self.size = size
 
-    def getSize(self):
-        return 0
+    def getSize(self) -> int:
+        # size of the array is the size of the datatype * the number of elements
+        return self.pType.getSize() * self.size
+
+    def getPSize(self) -> int:
+        return self.pType.getSize()
+
+    def getStackSize(self) -> int:
+        return 2 # an absolute address is pushed :P

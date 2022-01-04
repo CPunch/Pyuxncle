@@ -28,4 +28,15 @@ void printInt(int x) {
     Console.write = 0x0A;
 }
 
-printInt(10);
+int arr[10];
+int i = 0;
+
+while (i < 10) {
+    arr[i] = i;
+    i = i + 1;
+}
+
+while (i > 0) {
+    i = i - 1;
+    printInt(arr[i]);
+}

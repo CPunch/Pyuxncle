@@ -16,6 +16,7 @@ class TOKENTYPE(Enum):
     MINUS = auto() # -
     STAR = auto() # *
     SLASH = auto() # /
+    MOD = auto()
     AMPER = auto() # &
     MINUSGRTR = auto() # ->
     DOT = auto() # .
@@ -31,7 +32,7 @@ class TOKENTYPE(Enum):
     RETURN = auto() # return
     IDENT = auto() # Identifier_123
     NUM = auto() # 1234567890 or 0xFF
-    CHARLIT = auto() # 'a'
+    CHARLIT = auto() # 'A'
     INT = auto() # int
     CHAR = auto() # char
     BOOL = auto() # bool
@@ -61,7 +62,7 @@ _ReservedWordTable = {
 }
 
 def _isWhitespace(c):
-    return c in string.whitespace
+    return c in string.whitespace or c == '/'
 
 def _isNum(c):
     return c in string.digits
@@ -93,6 +94,12 @@ class Lexer:
 
         return self.src[self.cursor]
 
+    def __peekNext(self):
+        if self.cursor + 1 >= self.size:
+            return '\0'
+        
+        return self.src[self.cursor + 1]
+
     # grabs the current character and increments the cursor
     def __next(self):
         if self.__isEnd():
@@ -118,6 +125,26 @@ class Lexer:
         while (_isWhitespace(self.__peek())):
             if self.__peek() == '\n': # on newlines, count the line!
                 self.line += 1
+            elif self.__peek() == '/': # maybe a comment?
+                if self.__peekNext() == '/': # consume comment
+                    self.__next() # consumes '/'
+                    # consume until newline, make sure to not consume newline so that it's properly handled on the next iteration
+                    while not self.__isEnd() and not self.__peek() == '\n':
+                        self.__next()
+                elif self.__peekNext() == '*': # muti-line comment
+                    self.__next() # consumes '*'
+
+                    # consume until '*/'
+                    while not self.__isEnd() and not (self.__peek() == '*' and self.__peekNext() == '/'):
+                        self.__next()
+
+                    # consume '*/'
+                    self.__next()
+                    self.__next()
+                else:
+                    # not a comment, return
+                    return
+
             self.__next()
 
     def __readIdentifier(self):
@@ -133,7 +160,7 @@ class Lexer:
     # TODO: support special characters eg. '\n', '\r', etc.
     def __readCharacter(self):
         self.__next()
-        
+
         if not self.__checkNext('\''):
             self.__error("Unended character literal!")
 
@@ -173,11 +200,13 @@ class Lexer:
             '-' : (lambda : self.__makeToken(TOKENTYPE.MINUSGRTR) if self.__checkNext('>') else self.__makeToken(TOKENTYPE.MINUS)),
             '*' : (lambda : self.__makeToken(TOKENTYPE.STAR)),
             '/' : (lambda : self.__makeToken(TOKENTYPE.SLASH)),
+            '%' : (lambda : self.__makeToken(TOKENTYPE.MOD)),
             '&' : (lambda : self.__makeToken(TOKENTYPE.AMPER)),
             '.' : (lambda : self.__makeToken(TOKENTYPE.DOT)),
             '=' : (lambda : self.__makeToken(TOKENTYPE.EQUALEQUAL) if self.__checkNext('=') else self.__makeToken(TOKENTYPE.EQUAL)),
             '>' : (lambda : self.__makeToken(TOKENTYPE.GRTREQL) if self.__checkNext('=') else self.__makeToken(TOKENTYPE.GRTR)),
             '<' : (lambda : self.__makeToken(TOKENTYPE.LESSEQL) if self.__checkNext('=') else self.__makeToken(TOKENTYPE.LESS)),
+            '\'': (lambda : self.__readCharacter()),
             '\0': (lambda : self.__makeToken(TOKENTYPE.EOF)),
         }
 

@@ -1,16 +1,13 @@
 device Console[0x18] {
-    char character;
-    char byte;
-    int short;
-    char *str;
+    char write;
 };
 
 int i;
 int a = 2;
 
 void print(int x) {
-    Console.short = x;
-    Console.character = 0x0A;
+    Console.write = '0' + x;
+    Console.write = 0x0A;
 }
 
 print(((int*)(&i))[1]);

@@ -62,6 +62,7 @@ class Parser:
             TOKENTYPE.MINUS:        _PrecRule(PRECTYPE.TERM,    None,           self.__binOp),
             TOKENTYPE.STAR:         _PrecRule(PRECTYPE.FACTOR,  self.__pointer, self.__binOp),
             TOKENTYPE.SLASH:        _PrecRule(PRECTYPE.FACTOR,  None,           self.__binOp),
+            TOKENTYPE.MOD:          _PrecRule(PRECTYPE.FACTOR,  None,           self.__binOp),
             TOKENTYPE.AMPER:        _PrecRule(PRECTYPE.NONE,    self.__ampersand, None),
             TOKENTYPE.EQUAL:        _PrecRule(PRECTYPE.NONE,    None,           None),
             TOKENTYPE.EQUALEQUAL:   _PrecRule(PRECTYPE.COMPAR,  None,           self.__binOp),
@@ -75,13 +76,14 @@ class Parser:
 
             TOKENTYPE.IDENT:        _PrecRule(PRECTYPE.NONE,    self.__ident,   None),
             TOKENTYPE.NUM:          _PrecRule(PRECTYPE.NONE,    self.__number,  None),
+            TOKENTYPE.CHARLIT:      _PrecRule(PRECTYPE.NONE,    self.__charlit, None),
             TOKENTYPE.EOF:          _PrecRule(PRECTYPE.NONE,    None,           None)
         }
 
         self.typeTable = {
             TOKENTYPE.INT : IntDataType(),
             TOKENTYPE.BOOL : BoolDataType(),
-            TOKENTYPE.CHAR : BoolDataType(),
+            TOKENTYPE.CHAR : CharDataType(),
             TOKENTYPE.VOID : VoidDataType()
         }
 
@@ -132,6 +134,19 @@ class Parser:
     def __popLeftHand(self) -> str:
         return self.lefthand.pop()
 
+    # expects LBRACKET to already be consumed
+    def __consumeArrayType(self, dtype: DataType) -> DataType:
+        # NOTE: VLAs are NOT supported, i cba to write support for that lol.
+        # (it's technically an extension anyways, besides this is a 'c-like' language)
+
+        # ALSO NOTE: pyuxncle has no support for compiler time constexpr combining. (aka. 2 * 4 would be optimized at compile-time to 8.)
+        # so anything in between the '[]' should just be 1 token long, and MUST BE an int.
+
+        self.__consume(TOKENTYPE.NUM, "Expected size of array!")
+        sz = self.__grabNumber(self.previous)
+        self.__consume(TOKENTYPE.RBRACKET, "Expected end of array definition! (missing ']')")
+        return DataArray(dtype, sz)
+
     def __checkDataType(self) -> DataType:
         # current token isn't a datatype
         if not self.current.type in self.typeTable:
@@ -139,10 +154,11 @@ class Parser:
 
         dtype = self.typeTable[self.current.type]
 
-        # is it a pointer?
         self.__advance()
-        if self.__match(TOKENTYPE.STAR):
+        if self.__match(TOKENTYPE.STAR): # is it a pointer?
             dtype = Pointer(dtype)
+        elif self.__match(TOKENTYPE.LBRACKET):
+            dtype = self.__consumeArrayType(dtype)
 
         return dtype
 
@@ -173,6 +189,8 @@ class Parser:
     def __writeBinaryOp(self, op: str, dtype: DataType, rtype: DataType):
         if dtype.type == DTYPES.INT:
             self.__writeOut("%s2\n" % op)
+        elif dtype.type == DTYPES.CHAR:
+            self.__writeOut("%s\n" % op)
         else:
             self.__error("Cannot perform binary operation on type '%s'" % dtype.name)
 
@@ -324,13 +342,18 @@ class Parser:
     def __getVar(self, varInfo: VarInfo):
         dtype = varInfo.var.dtype
 
+        # if array, return absolute
+        if dtype.type == DTYPES.ARRAY:
+            self.__getVarAddr(varInfo)
+            return
+
         # is it a global?
         if varInfo.indx == -1:
             # read global
             if dtype.getSize() == 2:
-                self.__writeOut(".globals/%s LDZ2\n" % varInfo.var.name)
+                self.__writeOut(";globals/%s LDA2\n" % varInfo.var.name)
             elif dtype.getSize() == 1:
-                self.__writeOut(".globals/%s LDZ\n" % varInfo.var.name)
+                self.__writeOut(";globals/%s LDA\n" % varInfo.var.name)
             else:
                 self.__error("Can't set '%s': size greater than 2!" % varInfo.var.name)
         elif varInfo.indx == -2: # it's a sub, out the absolute address
@@ -353,13 +376,16 @@ class Parser:
     def __setVar(self, varInfo: VarInfo):
         dtype = varInfo.var.dtype
 
+        if dtype.type == DTYPES.ARRAY:
+            self.__error("Can't set '%s': cannot set array type!")
+
         # is it a global?
         if varInfo.indx == -1:
             # set global
             if dtype.getSize() == 2:
-                self.__writeOut(".globals/%s STZ2\n" % varInfo.var.name)
+                self.__writeOut(";globals/%s STA2\n" % varInfo.var.name)
             elif dtype.getSize() == 1:
-                self.__writeOut(".globals/%s STZ\n" % varInfo.var.name)
+                self.__writeOut(";globals/%s STA\n" % varInfo.var.name)
             else:
                 self.__error("Can't set '%s': size greater than 2!" % varInfo.var.name)
         elif varInfo.indx == -2: # it's a sub, can't set that!
@@ -382,10 +408,10 @@ class Parser:
         dtype = varInfo.var.dtype
 
         if varInfo.indx == -1: # it's a global! our job is easy, just push the absolute address
-            self.__writeOut("#00 .globals/%s " % varInfo.var.name)
-        elif varInfo.indx == -2: # it's a subroutine! our job is easy again, just push the absolute address
+            self.__writeOut(";globals/%s " % varInfo.var.name)
+        elif varInfo.indx == -2: # it's a subroutine! our job is easy again, just push the absolute address (again)
             self.__writeOut(";%s " % dtype.subname)
-        elif varInfo.kindx == -3: # it's a device! we only alow DEO/DEI to interact with the devices address directly
+        elif varInfo.indx == -3: # it's a device! we only alow DEO/DEI to interact with the devices address directly
             self.__error("Can't get address of device!")
         else: # it's a normal variable, we'll need to push it's heap address.
             self.__writeOut(".uxncle/heap LDZ2 ")
@@ -430,24 +456,40 @@ class Parser:
 
         return self.parseTable[tkn.type]
 
+    def __grabNumber(self, tkn: Token):
+        num = int(tkn.word, 0) # python can guess the base using the 0* prefix if you pass base 0 (https://docs.python.org/3.4/library/functions.html?highlight=int#int)
+
+        if num > 65536:
+            self.__error("Number literal '%d' is too big! (> 65536)" % num)
+
+        return num
+
     # parses number literal
     def __number(self, leftType: DataType, canAssign: bool, expectValue: bool, precLevel: PRECTYPE) -> DataType:
         # the expression expects nothing, return nothing (void)
         if not expectValue:
             return VoidDataType()
 
-        num =  int(self.previous.word, 0) # python can guess the base using the 0* prefix if you pass base 0 (https://docs.python.org/3.4/library/functions.html?highlight=int#int)
+        num = self.__grabNumber(self.previous)
 
-        if num > 65536:
-            self.__error("Number literal '%d' is too big! (> 65536)" % num)
+        if num > 256:
+            self.__writeIntLiteral(num)
+            self.pushed += 2
+            return IntDataType()
+        else:
+            self.__writeByteLiteral(num)
+            self.pushed += 1
+            return CharDataType()
 
-        self.__writeIntLiteral(num)
-        self.pushed += 2
-        return IntDataType()
+    # parses character literal
+    def __charlit(self, leftType: DataType, canAssign: bool, expectValue: bool, precLevel: PRECTYPE) -> DataType:
+        self.__writeByteLiteral(ord(self.previous.word[1]))
+        self.pushed += 1
+        return CharDataType()
 
     def __index(self, leftType: DataType, canAssign: bool, expectValue: bool, precLevel: PRECTYPE) -> DataType:
-        if leftType.type != DTYPES.POINTER:
-            self.__error("ltype error! Expected lefthand expression of pointer type! Got '%s'!" % leftType.name)
+        if leftType.type != DTYPES.POINTER and leftType.type != DTYPES.ARRAY:
+            self.__error("ltype error! Expected lefthand expression of pointer or array type! Got '%s'!" % leftType.name)
 
         exprType = self.__expression()
 
@@ -456,7 +498,7 @@ class Parser:
 
         self.__consume(TOKENTYPE.RBRACKET, "Expected ']' to end index!")
 
-        # get offset data from pointer (add index to pointer instructions)
+        # get offset data from pointer (multiply pointer size with the index)
         self.__writeIntLiteral(leftType.pType.getPSize())
         self.__writeOut("MUL2\n")
 
@@ -491,6 +533,9 @@ class Parser:
                 self.__writeOut("STA\n")
             else:
                 self.__error("Can't set value > 2 bytes!")
+
+            self.pushed -= leftType.pType.getSize() # popped data on stack
+            self.pushed -= 2 # popped address
         else:
             # load data from that address (it's an absolute address on the stack)
             if leftType.pType.getSize() == 2:
@@ -500,9 +545,10 @@ class Parser:
             else:
                 self.__error("Can't get value > 2 bytes!")
 
+            self.pushed += leftType.pType.getSize() # index is now on stack
+            self.pushed -= 2 # popped address
+
         return leftType.pType
-
-
 
     # parses binary operators
     def __binOp(self, leftType: DataType, canAssign: bool, expectValue: bool, precLevel: PRECTYPE) -> DataType:
@@ -520,36 +566,40 @@ class Parser:
             self.__errorAt(tkn, "Cannot convert '%s' to '%s'!" % (rtype.name, leftType.name))
 
         if tkn.type == TOKENTYPE.PLUS:
-            self.__writeBinaryOp("ADD", rtype, rtype)
+            self.__writeBinaryOp("ADD", leftType, leftType)
         elif tkn.type == TOKENTYPE.MINUS:
-            self.__writeBinaryOp("SUB", rtype, rtype)
+            self.__writeBinaryOp("SUB", leftType, leftType)
         elif tkn.type == TOKENTYPE.STAR:
-            self.__writeBinaryOp("MUL", rtype, rtype)
+            self.__writeBinaryOp("MUL", leftType, leftType)
         elif tkn.type == TOKENTYPE.SLASH:
-            self.__writeBinaryOp("DIV", rtype, rtype)
+            self.__writeBinaryOp("DIV", leftType, leftType)
+        elif tkn.type == TOKENTYPE.MOD:
+            self.__writeBinaryOp("DIVk", leftType, leftType)
+            self.__writeBinaryOp("MUL", leftType, leftType)
+            self.__writeBinaryOp("SUB", leftType, leftType)
         elif tkn.type == TOKENTYPE.EQUALEQUAL:
-            self.__writeBinaryOp("EQU", rtype, BoolDataType())
-            rtype = BoolDataType()
+            self.__writeBinaryOp("EQU", leftType, BoolDataType())
+            leftType = BoolDataType()
         elif tkn.type == TOKENTYPE.GRTR:
-            self.__writeBinaryOp("GTH", rtype, BoolDataType())
-            rtype = BoolDataType()
+            self.__writeBinaryOp("GTH", leftType, BoolDataType())
+            leftType = BoolDataType()
         elif tkn.type == TOKENTYPE.LESS:
-            self.__writeBinaryOp("LTH", rtype, BoolDataType())
-            rtype = BoolDataType()
+            self.__writeBinaryOp("LTH", leftType, BoolDataType())
+            leftType = BoolDataType()
         elif tkn.type == TOKENTYPE.GRTREQL:
             # >= is just *not* <. so check if it's less than, and NOT the result
-            self.__writeBinaryOp("LTH", rtype, BoolDataType())
+            self.__writeBinaryOp("LTH", leftType, BoolDataType())
             self.__writeOut("#00 EQU\n")
-            rtype = BoolDataType()
+            leftType = BoolDataType()
         elif tkn.type == TOKENTYPE.LESSEQL:
             # <= is just *not* >. so check if it's greater than, and NOT the result
-            self.__writeBinaryOp("GTH", rtype, BoolDataType())
+            self.__writeBinaryOp("GTH", leftType, BoolDataType())
             self.__writeOut("#00 EQU\n")
-            rtype = BoolDataType()
+            leftType = BoolDataType()
         else: # should never happen
             self.__errorAt(tkn, "Invalid binary operator token!")
 
-        return rtype
+        return leftType
 
     def __ampersand(self, leftType: DataType, canAssign: bool, expectValue: bool, precLevel: PRECTYPE) -> DataType:
         self.__consume(TOKENTYPE.IDENT, "Expected identifier after '&'!")
@@ -630,7 +680,7 @@ class Parser:
 
         # call subroutine
         self.__pushLeftHand() # push another LeftHand expression
-        self.__writeOut("%s JSR2\n" % subInstr)
+        self.__writeOut("%sJSR2\n" % subInstr)
         self.pushed -= sub.getSize() # absolute address is popped
 
         # track pushed value on stack
@@ -687,8 +737,7 @@ class Parser:
                 else:
                     self.__setVar(varInfo)
             else:
-                if not expectValue and varInfo.var.dtype.type != DTYPES.SUB: # sanity check
-                    return VoidDataType()
+                # we ignore expectValue since the user should know better than to write a single expression-statement that computes useless values.
 
                 # finally, get the variable
                 if not lastType == None: # we walked through '.' or '->'
@@ -809,6 +858,16 @@ class Parser:
 
         # reset our currentSub index :)
         self.currentSub = -1
+    
+    def __defArray(self, dType: DataType, ident: Token):
+        # arrays will *always* be defined in our heap. This keeps room in
+        # our globals, as well as makes things much simpler lol
+        # NOTE: read __consumeArrayType() for some restrictions
+
+        array = self.__consumeArrayType(dType)
+        self.__addScopeVar(Variable(ident.word, array))
+
+        # TODO: array initialization = {}
 
     # returns true if it parsed a function
     def __varTypeState(self, dtype: DataType):
@@ -818,6 +877,10 @@ class Parser:
         if self.__match(TOKENTYPE.LPAREN): # they're declaring a subroutine!
             self.__defSub(dtype, ident)
             return True
+
+        if self.__match(TOKENTYPE.LBRACKET): # they're declaring an array!
+            self.__defArray(dtype, ident)
+            return False
 
         varInfo = self.__addScopeVar(Variable(ident.word, dtype))
 
@@ -906,7 +969,7 @@ class Parser:
 
         self.__consume(TOKENTYPE.LBRACKET, "Expected '[' for start of zeropage address of device!")
         self.__consume(TOKENTYPE.NUM, "Expected zeropage address for start of device!")
-        addr = int(self.previous.word, 0)
+        addr = self.__grabNumber(self.previous)
         self.__consume(TOKENTYPE.RBRACKET, "Expected ']' for end of zeropage address of device!")
         self.__consume(TOKENTYPE.LBRACE, "Expected '{' to start member list!")
 
@@ -984,8 +1047,10 @@ class Parser:
     def parse(self):
         self.__advance()
 
+        self.__newScope() # no 'true' variables will be allocated here. just allows heap allocation for arrays and such
         # parse until the end of the file
         self.__parseScope(False)
+        self.__popScope()
 
         # write the license header
         self.out.write(thinlib._LICENSE)
@@ -998,17 +1063,17 @@ class Parser:
         self.out.write("|0000\n")
         self.out.write(thinlib._MEMDEFS)
 
-        # now write all globals
-        self.out.write("@globals [ ")
-        for var in self.globals:
-            self.out.write("&%s $%d " % (var.name, var.dtype.getSize()))
-        self.out.write("]\n\n")
-
         # write entrypoint
         self.out.write("|0100\n")
         self.out.write(thinlib._MEMENTRY)
         self.out.write(self.entryInstr)
         self.out.write("BRK\n\n")
+
+        # now write all globals
+        self.out.write("@globals [ ")
+        for var in self.globals:
+            self.out.write("&%s $%d " % (var.name, var.dtype.getSize()))
+        self.out.write("]\n\n")
 
         # TODO: write subroutines
         for sub in self.subs:

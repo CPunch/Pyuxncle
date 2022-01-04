@@ -15,17 +15,13 @@ To compile a source file, pass it like so:
 
 ```c
 device Console[0x18] {
-    char character;
-    char byte;
-    int short;
-    char *str;
+    char write;
 };
 
-void print(int x) {
-    Console.short = x;
-    Console.character = 0x0A;
-}
+Console.short = 'H';
+Console.short = 'i';
+Console.short = '!';
+Console.character = 0x0A;
 
-print(2 * 8);
 ```
-> 16
+> Hi!
