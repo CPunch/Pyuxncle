@@ -1,4 +1,5 @@
-device Console[0x18] {
+device Console[0x10] {
+    char pad[8];
     char write;
 };
 

@@ -106,7 +106,6 @@ class Parser:
     def __advance(self):
         self.previous = self.current
         self.current = self.lexer.scanNext()
-        self.current.print()
         return self.current
 
     def __check(self, tknType: TOKENTYPE):
@@ -157,8 +156,6 @@ class Parser:
         self.__advance()
         if self.__match(TOKENTYPE.STAR): # is it a pointer?
             dtype = Pointer(dtype)
-        elif self.__match(TOKENTYPE.LBRACKET):
-            dtype = self.__consumeArrayType(dtype)
 
         return dtype
 
@@ -957,11 +954,9 @@ class Parser:
 
     def __deviceState(self):
         """
-            device Console[0x18] {
-                char character;
-                char byte;
-                int short;
-                char *str;
+            device Console[0x10] {
+                char padd[8];
+                char write;
             };
         """
         self.__consume(TOKENTYPE.IDENT, "Expected identifier for device declaration!")
@@ -978,7 +973,11 @@ class Parser:
         # consume members
         while not self.__match(TOKENTYPE.RBRACE):
             dtype = self.__matchDataType() # grab datatype
+
             self.__consume(TOKENTYPE.IDENT, "Expected identifier!")
+
+            if self.__match(TOKENTYPE.LBRACKET): # is it an array?
+                dtype = self.__consumeArrayType(dtype)
             dev.addMember(Variable(self.previous.word, dtype))
             self.__consume(TOKENTYPE.SEMICOLON, "Expected ';' to end member declaration!")
 
