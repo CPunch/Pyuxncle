@@ -18,10 +18,10 @@ device Console[0x18] {
     char write;
 };
 
-Console.short = 'H';
-Console.short = 'i';
-Console.short = '!';
-Console.character = 0x0A;
+Console.write = 'H';
+Console.write = 'i';
+Console.write = '!';
+Console.write = 0x0A;
 
 ```
 > Hi!
