@@ -322,16 +322,16 @@ class Parser:
         # variable wasn't found, check for it in our global array?
         for var in self.globals:
             if var.name == name:
-                return VarInfo(var, -1) # found it! return as a global
+                return VarInfo(var, VARINFOINDXS.GLOBAL.value) # found it! return as a global
 
-        # global wasn't found, maybe its a function
+        # global wasn't found, maybe its a subroutine
         for sub in self.subs:
             if sub.name == name:
-                return VarInfo(sub, -2)
+                return VarInfo(sub, VARINFOINDXS.SUBROUTINE.value)
 
         for dev in self.devices:
             if dev.devname == name:
-                return VarInfo(dev, -3)
+                return VarInfo(dev, VARINFOINDXS.DEVICE.value)
 
         return None
 
@@ -345,7 +345,7 @@ class Parser:
             return
 
         # is it a global?
-        if varInfo.indx == -1:
+        if varInfo.indx == VARINFOINDXS.GLOBAL.value:
             # read global
             if dtype.getSize() == 2:
                 self.__writeOut(";globals/%s LDA2\n" % varInfo.var.name)
@@ -353,7 +353,7 @@ class Parser:
                 self.__writeOut(";globals/%s LDA\n" % varInfo.var.name)
             else:
                 self.__error("Can't set '%s': size greater than 2!" % varInfo.var.name)
-        elif varInfo.indx == -2: # it's a sub, out the absolute address
+        elif varInfo.indx == VARINFOINDXS.SUBROUTINE.value: # it's a sub, out the absolute address
             self.__writeOut(";SUB_%s " % varInfo.var.name)
         else: # it's a normal var stored in the heap
             # read variable from the heap
@@ -377,7 +377,7 @@ class Parser:
             self.__error("Can't set '%s': cannot set array type!")
 
         # is it a global?
-        if varInfo.indx == -1:
+        if varInfo.indx == VARINFOINDXS.GLOBAL.value:
             # set global
             if dtype.getSize() == 2:
                 self.__writeOut(";globals/%s STA2\n" % varInfo.var.name)
@@ -385,7 +385,7 @@ class Parser:
                 self.__writeOut(";globals/%s STA\n" % varInfo.var.name)
             else:
                 self.__error("Can't set '%s': size greater than 2!" % varInfo.var.name)
-        elif varInfo.indx == -2: # it's a sub, can't set that!
+        elif varInfo.indx == VARINFOINDXS.SUBROUTINE.value: # it's a sub, can't set that!
             self.__error("Can't set '%s': constant function!" % varInfo.var.name)
         else: # it's a normal var stored in the heap
             # set variable
@@ -404,11 +404,11 @@ class Parser:
     def __getVarAddr(self, varInfo: VarInfo):
         dtype = varInfo.var.dtype
 
-        if varInfo.indx == -1: # it's a global! our job is easy, just push the absolute address
+        if varInfo.indx == VARINFOINDXS.GLOBAL.value: # it's a global! our job is easy, just push the absolute address
             self.__writeOut(";globals/%s " % varInfo.var.name)
-        elif varInfo.indx == -2: # it's a subroutine! our job is easy again, just push the absolute address (again)
+        elif varInfo.indx == VARINFOINDXS.SUBROUTINE.value: # it's a subroutine! our job is easy again, just push the absolute address (again)
             self.__writeOut(";%s " % dtype.subname)
-        elif varInfo.indx == -3: # it's a device! we only alow DEO/DEI to interact with the devices address directly
+        elif varInfo.indx == VARINFOINDXS.DEVICE.value: # it's a device! we only alow DEO/DEI to interact with the devices address directly
             self.__error("Can't get address of device!")
         else: # it's a normal variable, we'll need to push it's heap address.
             self.__writeOut(".uxncle/heap LDZ2 ")
@@ -695,7 +695,7 @@ class Parser:
             lastType = None
             offset = 0
 
-            if varInfo.indx == -3 or varInfo == -2:
+            if varInfo.indx == VARINFOINDXS.DEVICE.value or varInfo == VARINFOINDXS.SUBROUTINE.value:
                 ltype = varInfo.var
             else:
                 ltype = varInfo.var.dtype
@@ -920,10 +920,12 @@ class Parser:
         self.currentSub = -1
     
     def __defArray(self, dType: DataType, ident: Token):
-        # arrays will *always* be defined in our heap. This keeps room in
-        # our globals, as well as makes things much simpler lol
-        # NOTE: read __consumeArrayType() for some restrictions
+        # arrays in global scope will be put into our global table. this is part of the reason our
+        # zero-page is unused. might reserve zero-page for constants if they'll fit? if the array
+        # is defined in a scope, it's allocated on the heap and deallocated off the heap just like
+        # any other variable.
 
+        # NOTE: read __consumeArrayType() for some restrictions
         array = self.__consumeArrayType(dType)
         self.__addScopeVar(Variable(ident.word, array))
 

@@ -1,4 +1,4 @@
-from enum import Enum, auto
+from enum import IntEnum, Enum, auto
 
 class DTYPES(Enum):
     INT = auto()
@@ -35,9 +35,14 @@ class Variable:
         self.name = name
         self.dtype = dtype
 
+class VARINFOINDXS(IntEnum):
+    GLOBAL = -1,
+    SUBROUTINE = -2,
+    DEVICE = -3
+
 # variable info, including the variable (name & datatype) and the index in the stack
 class VarInfo:
-    def __init__(self, var: Variable, indx: int): # indx of -1 means a global, -2 means subroutine, -3 means device
+    def __init__(self, var: Variable, indx: int): # indx >= 0 means on the heap, < 0 means a VARINFOINDXS
         self.var = var
         self.indx = indx
 
