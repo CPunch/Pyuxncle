@@ -1,5 +1,5 @@
 device Console[0x10] {
-    char pad[8];
+    char pad[8]; /* these first few bytes contain a vector and other reserved bytes that we aren't using :P */
     char write;
 };
 
