@@ -5,29 +5,12 @@
 @uxncle [ &heap $2 ]
 |0100
 ;uxncle-heap .uxncle/heap STZ2
-#00 #00 SWP ;globals/total STA2
-#0a #00 SWP ;globals/x STA2
-&lbl7
-;globals/x LDA2
-#01 #00 SWP LTH2
-#00 EQU
-#00 EQU ,&lbl8 JCN
-;globals/total LDA2
-;globals/x LDA2
-ADD2
-;globals/total STA2
-;globals/x LDA2
-#01 #00 SWP SUB2
-;globals/x STA2
-,&lbl7 JMP
-&lbl8
-;globals/total LDA2
-;SUB_printInt JSR2
-#08 #00 SWP ;SUB_fact JSR2
-;SUB_printInt JSR2
+#02 #04 MUL
+#03 ADD
+#00 SWP ;SUB_printInt JSR2
 BRK
 
-@globals [ &total $2 &x $2 ]
+@globals [ ]
 
 @SUB_printInt
 #0002 ;alloc-uxncle JSR2
@@ -81,30 +64,11 @@ STA
 #00 SWP #0001 MUL2
 ADD2
 LDA
-.Console #08 ADD DEO
+#08 #01 MUL .Console #00 ADD ADD DEO
 ,&lbl4 JMP
 &lbl5
-#0a .Console #08 ADD DEO
+#0a #08 #01 MUL .Console #00 ADD ADD DEO
 #0009 ;dealloc-uxncle JSR2
-JMP2r
-
-@SUB_fact
-#0002 ;alloc-uxncle JSR2
-#0002 ;poke-uxncle-short JSR2
-#0002 ;peek-uxncle-short JSR2
-#01 #00 SWP GTH2
-#00 EQU ,&lbl6 JCN
-#0002 ;peek-uxncle-short JSR2
-#0002 ;peek-uxncle-short JSR2
-#01 #00 SWP SUB2
-;SUB_fact JSR2
-MUL2
-#0002 ;dealloc-uxncle JSR2
-JMP2r
-&lbl6
-#01 #00 SWP #0002 ;dealloc-uxncle JSR2
-JMP2r
-#0002 ;dealloc-uxncle JSR2
 JMP2r
 
 @alloc-uxncle

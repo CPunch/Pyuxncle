@@ -28,4 +28,4 @@ void printInt(int x) {
     Console.pad[8] = 0x0A;
 }
 
-printInt(10);
+printInt(2 * 4 + 3); // should print 11?
