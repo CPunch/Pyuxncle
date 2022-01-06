@@ -140,7 +140,6 @@ class Lexer:
 
                     # consume '*/'
                     self.__next()
-                    self.__next()
                 else:
                     # not a comment, return
                     return

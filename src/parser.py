@@ -713,13 +713,76 @@ class Parser:
                     offset += memInfo.indx
                     ltype = memInfo.dtype
 
-            # it's a variable, if we *can* assign & there's an EQUAL token, handle assignment
-            if canAssign and self.__match(TOKENTYPE.EQUAL):
+            # are we getting/setting to an index in an array in a device?
+            if not lastType == None and lastType.type == DTYPES.DEV and ltype.type == DTYPES.ARRAY and self.__match(TOKENTYPE.LBRACKET):
+                ptype = ltype.pType
+
+                self.__pushLeftHand() # to encapsulate absolute address
+                itype = self.__expression() # grab index
+                self.__consume(TOKENTYPE.RBRACKET, "Expected ']' to end index!")
+
+                # make sure it's an int
+                if not self.__tryTypeCast(itype, CharDataType()):
+                    self.__error("Cannot index array with type '%s'!" % itype.name)
+
+                # compute index offset
+                self.__writeByteLiteral(ltype.getPSize())
+                self.__writeOut("MUL ")
+
+                # grab offset of member
+                self.__writeOut(".%s " % lastType.devname)
+                self.__writeByteLiteral(memInfo.indx)
+                self.__writeOut("ADD ")
+
+                # add absolute address of member to index offset
+                self.__writeOut("ADD ")
+                addr = self.__popLeftHand()
+                
+                # getting or setting?
+                if canAssign and self.__match(TOKENTYPE.EQUAL):
+                    rtype = self.__expression()
+
+                    # type cast
+                    if not self.__tryTypeCast(rtype, ptype):
+                        self.__error("Cannot convert '%s' to '%s'!" % (rtype.name, ptype.name))
+
+                    # duplicate the value on the stack if it expects a value
+                    if expectValue:
+                        self.__dupVal(ptype)
+
+                    # now that the value to set is on the stack, push the absolute address and assign
+                    self.__writeOut(addr)
+
+                    if ptype.getSize() == 1:
+                        self.__writeOut("DEO\n")
+                    elif ptype.getSize() == 2:
+                        self.__writeOut("DEO2\n")
+                    else:
+                        self.__error("Can't set value of device > 2 bytes!")
+
+                    self.pushed -= ptype.getSize() + 1 # +1 for the index
+
+                else:
+                    # push the absolute address and read from it
+                    self.__writeOut(addr)
+
+                    if ptype.getSize() == 1:
+                        self.__writeOut("DEI\n")
+                    elif ptype.getSize() == 2:
+                        self.__writeOut("DEI2\n")
+                    else:
+                        self.__error("Can't get value of device > 2 bytes!")
+
+                    self.pushed -= 1 # popped index
+                    self.pushed += ptype.getSize()
+                
+                return ptype
+            elif canAssign and self.__match(TOKENTYPE.EQUAL): # it's a variable, if we *can* assign & there's an EQUAL token, handle assignment
                 rtype = self.__expression()
 
                 # try to typecast by default
                 if not self.__tryTypeCast(rtype, ltype):
-                    self.__error("Cannot convert '%s' to '%s'!" % (rtype.name, leftType.name))
+                    self.__error("Cannot convert '%s' to '%s'!" % (rtype.name, ltype.name))
 
                 # duplicate the value on the stack if it expects a value
                 if expectValue:
@@ -975,10 +1038,12 @@ class Parser:
             dtype = self.__matchDataType() # grab datatype
 
             self.__consume(TOKENTYPE.IDENT, "Expected identifier!")
-
+            
+            ident = self.previous.word
             if self.__match(TOKENTYPE.LBRACKET): # is it an array?
                 dtype = self.__consumeArrayType(dtype)
-            dev.addMember(Variable(self.previous.word, dtype))
+            dev.addMember(Variable(ident, dtype))
+            
             self.__consume(TOKENTYPE.SEMICOLON, "Expected ';' to end member declaration!")
 
         self.devices.append(dev)

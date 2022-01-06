@@ -1,6 +1,5 @@
 device Console[0x10] {
-    char pad[8];
-    char write;
+    char pad[9];
 };
 
 void printInt(int x) {
@@ -22,11 +21,11 @@ void printInt(int x) {
 
     while (len > 0) {
         len = len - 1;
-        Console.write = str[len];
+        Console.pad[8] = str[len];
     }
 
     /* write newline character */
-    Console.write = 0x0A;
+    Console.pad[8] = 0x0A;
 }
 
 printInt(10);

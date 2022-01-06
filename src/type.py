@@ -88,6 +88,7 @@ class Device(DataType):
         self.addr = addr # zeropage address
 
     def addMember(self, mem: Variable):
+        print("adding '%s' to dev %s" % (mem.name, self.devname))
         self.members.append(mem)
 
     # returns VarInfo of member, or None if not found
