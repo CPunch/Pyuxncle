@@ -1030,6 +1030,11 @@ class Parser:
         self.__consume(TOKENTYPE.LBRACKET, "Expected '[' for start of zeropage address of device!")
         self.__consume(TOKENTYPE.NUM, "Expected zeropage address for start of device!")
         addr = self.__grabNumber(self.previous)
+
+        # check it'll fit in a zeropage address
+        if addr > 256:
+            self.__error("Invalid device address! (outside of zeropage!)")
+
         self.__consume(TOKENTYPE.RBRACKET, "Expected ']' for end of zeropage address of device!")
         self.__consume(TOKENTYPE.LBRACE, "Expected '{' to start member list!")
 
