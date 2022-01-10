@@ -511,6 +511,7 @@ class Parser:
 
         # push absolute address to constant
         self.__writeOut(";const%d " % id)
+        self.pushed += 2
         return Pointer(CharDataType())
 
     def __index(self, leftType: DataType, canAssign: bool, expectValue: bool, precLevel: PRECTYPE) -> DataType:
