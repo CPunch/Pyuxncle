@@ -1,5 +1,6 @@
 from enum import IntEnum, auto
 from collections.abc import Callable
+import string
 from tokenizer import Lexer, TOKENTYPE, Token
 from type import *
 from compError import doCompError
@@ -23,8 +24,8 @@ class _PrecRule:
         self.infix = infix
 
 class _Constant:
-    def __init__(self, id: int, data: str):
-        self.id = id
+    def __init__(self, type: DataType, data: str):
+        self.type = type
         self.data = data
 
 class _Scope:
@@ -77,6 +78,7 @@ class Parser:
             TOKENTYPE.IDENT:        _PrecRule(PRECTYPE.NONE,    self.__ident,   None),
             TOKENTYPE.NUM:          _PrecRule(PRECTYPE.NONE,    self.__number,  None),
             TOKENTYPE.CHARLIT:      _PrecRule(PRECTYPE.NONE,    self.__charlit, None),
+            TOKENTYPE.STRINGLIT:    _PrecRule(PRECTYPE.NONE,    self.__stringlit, None),
             TOKENTYPE.EOF:          _PrecRule(PRECTYPE.NONE,    None,           None)
         }
 
@@ -108,10 +110,10 @@ class Parser:
         self.current = self.lexer.scanNext()
         return self.current
 
-    def __check(self, tknType: TOKENTYPE):
+    def __check(self, tknType: TOKENTYPE) -> bool:
         return self.current.type == tknType
 
-    def __match(self, tknType: TOKENTYPE):
+    def __match(self, tknType: TOKENTYPE) -> bool:
         if not self.__check(tknType):
             return False
 
@@ -124,8 +126,12 @@ class Parser:
             self.__error(errMsg)
 
     # returns true if the parser reached the end of the token list
-    def __isEnd(self):
+    def __isEnd(self) -> bool:
         return self.__check(TOKENTYPE.EOF)
+
+    def __addConstant(self, const: _Constant) -> int:
+        self.constants.append(const)
+        return len(self.constants)-1
 
     def __pushLeftHand(self):
         self.lefthand.append("")
@@ -483,6 +489,29 @@ class Parser:
         self.__writeByteLiteral(ord(self.previous.word[1]))
         self.pushed += 1
         return CharDataType()
+
+    # parses string literal
+    def __stringlit(self, leftType: DataType, canAssign: bool, expectValue: bool, precLevel: PRECTYPE) -> DataType:
+        strng = self.previous.word[1:-1] # removes ""
+        data = ""
+        dtype = DataArray(CharDataType(), len(strng))
+        wasRaw = True
+
+        for c in strng:
+            if c in string.ascii_letters or c in string.punctuation or c in string.digits:
+                if wasRaw: # let assembler know these are to be treated as ascii characters
+                    data += " \""
+                    wasRaw = False
+                data += c
+            else:
+                data += " %.2x" % ord(c)
+                wasRaw = True
+
+        id = self.__addConstant(_Constant(dtype, data))
+
+        # push absolute address to constant
+        self.__writeOut(";const%d " % id)
+        return Pointer(CharDataType())
 
     def __index(self, leftType: DataType, canAssign: bool, expectValue: bool, precLevel: PRECTYPE) -> DataType:
         if leftType.type != DTYPES.POINTER and leftType.type != DTYPES.ARRAY:
@@ -1145,6 +1174,10 @@ class Parser:
         for var in self.globals:
             self.out.write("&%s $%d " % (var.name, var.dtype.getSize()))
         self.out.write("]\n\n")
+
+        # write all constants
+        for i in range(len(self.constants)):
+            self.out.write("@const%d %s\n" % (i, self.constants[i].data))
 
         # TODO: write subroutines
         for sub in self.subs:

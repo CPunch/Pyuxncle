@@ -213,6 +213,7 @@ class Lexer:
             '>' : (lambda : self.__makeToken(TOKENTYPE.GRTREQL) if self.__checkNext('=') else self.__makeToken(TOKENTYPE.GRTR)),
             '<' : (lambda : self.__makeToken(TOKENTYPE.LESSEQL) if self.__checkNext('=') else self.__makeToken(TOKENTYPE.LESS)),
             '\'': (lambda : self.__readCharacter()),
+            '"' : (lambda : self.__readString()),
             '\0': (lambda : self.__makeToken(TOKENTYPE.EOF)),
         }
 
