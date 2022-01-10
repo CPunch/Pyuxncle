@@ -33,6 +33,7 @@ class TOKENTYPE(Enum):
     IDENT = auto() # Identifier_123
     NUM = auto() # 1234567890 or 0xFF
     CHARLIT = auto() # 'A'
+    STRINGLIT = auto() # "ABC"
     INT = auto() # int
     CHAR = auto() # char
     BOOL = auto() # bool
@@ -164,6 +165,12 @@ class Lexer:
             self.__error("Unended character literal!")
 
         return self.__makeToken(TOKENTYPE.CHARLIT)
+
+    def __readString(self):
+        while not self.__checkNext('"'):
+            self.__next()
+
+        return self.__makeToken(TOKENTYPE.STRINGLIT)
 
     def __readNumber(self):
         if self.__checkNext('x') or self.__checkNext('X'): # it's a hexadecimal digit
