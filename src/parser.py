@@ -57,6 +57,8 @@ class Parser:
         self.parseTable = {
             # TOKEN :               _PrecRule(Precedence,       prefix,         infix)
             TOKENTYPE.SEMICOLON:    _PrecRule(PRECTYPE.NONE,    None,           None),
+            TOKENTYPE.LBRACE:       _PrecRule(PRECTYPE.NONE,    None,           None),
+            TOKENTYPE.RBRACE:       _PrecRule(PRECTYPE.NONE,    None,           None),
             TOKENTYPE.LBRACKET:     _PrecRule(PRECTYPE.INDEX,   None,           self.__index),
             TOKENTYPE.RBRACKET:     _PrecRule(PRECTYPE.NONE,    None,           None),
             TOKENTYPE.PLUS:         _PrecRule(PRECTYPE.TERM,    None,           self.__binOp),
@@ -959,7 +961,51 @@ class Parser:
         array = self.__consumeArrayType(dType)
         self.__addScopeVar(Variable(ident.word, array))
 
-        # TODO: array initialization = {}
+        # TODO!
+        '''if self.__match(TOKENTYPE.EQUAL):
+            self.__consume(TOKENTYPE.LBRACE, "Expected '{' to start array initialization!")
+            constID = self.__parseArray(dType)
+
+            if self.constants[constID].type.size != array.size:
+                self.__error("Type mismatch! Expected array of size %d, got %d elements!" % (array.size, self.constants[constID].type.size))
+
+            # copy constant array to variable array'''
+
+
+    # parses constant array literal, returns constant ID
+    def __parseArray(self, dtype: DataType) -> int:
+        if dtype.type != DTYPES.INT and dtype.type != DTYPES.CHAR:
+            self.__error("Cannot define const array of type '%s'" % dtype.name)
+
+        array = None
+        data = ""
+        sz = 0
+
+        while True:
+            num = None
+
+            # grab literal
+            if self.__match(TOKENTYPE.NUM):
+                num = self.__grabNumber(self.previous)
+            elif self.__match(TOKENTYPE.CHARLIT):
+                num = ord(self.previous.word[1])
+            else:
+                self.__error("Expected literal value!")
+
+            # add to data string
+            if dtype.type == DTYPES.INT:
+                data += " %.4x" % num
+            else:
+                data += " %.2x" % num
+
+            sz += 1
+            # consume comma
+            if not self.__match(TOKENTYPE.COMMA):
+                break
+
+        self.__consume(TOKENTYPE.RBRACE, "Expected '}' to end constant array definition!")
+        return self.__addConstant(_Constant(DataArray(dtype, sz), data))
+
 
     # returns true if it parsed a function
     def __varTypeState(self, dtype: DataType):
@@ -977,11 +1023,18 @@ class Parser:
         varInfo = self.__addScopeVar(Variable(ident.word, dtype))
 
         if self.__match(TOKENTYPE.EQUAL):
-            rtype = self.__expression()
+            if dtype.type == DTYPES.POINTER and self.__match(TOKENTYPE.LBRACE): # they're defining a pointer to a constant array
+                id = self.__parseArray(dtype.pType)
+                self.__writeOut(";const%d "% id)
+                self.pushed += 2
 
-            if not self.__tryTypeCast(rtype, dtype):
-                self.__error("Expected expession of type '%s', got '%s'!" % (dtype.name, rtype.name))
-            self.__setVar(varInfo)
+                self.__setVar(varInfo)
+            else:
+                rtype = self.__expression()
+
+                if not self.__tryTypeCast(rtype, dtype):
+                    self.__error("Expected expession of type '%s', got '%s'!" % (dtype.name, rtype.name))
+                self.__setVar(varInfo)
 
         return False
 
